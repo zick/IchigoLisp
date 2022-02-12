@@ -1,0 +1,37 @@
+<!doctype html>
+
+<html>
+
+  <head>
+    <meta charset="utf-8">
+    <title>Simple logging example</title>
+  </head>
+
+  <body>
+    <script>
+      var memory = new WebAssembly.Memory({initial:3});
+      var importObject = {
+          js: { mem: memory },
+          console: {
+              log: function(arg) {
+                  console.log(arg);
+              },
+              logstr: function(arg) {
+                  var i8 = new Uint8Array(memory.buffer);
+                  var start = arg, end = arg;
+                  while (i8[end] != 0) { end++; }
+                  var bytes = new Uint8Array(memory.buffer, start, end - start);
+                  var string = new TextDecoder('utf8').decode(bytes);
+                  console.log(string);
+              },
+          },
+      };
+
+      WebAssembly.instantiateStreaming(fetch('ichigo.wasm'), importObject)
+    .then(obj => {
+        obj.instance.exports.exported_func();
+    });
+    </script>
+  </body>
+
+  </html>
