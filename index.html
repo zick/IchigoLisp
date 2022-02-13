@@ -9,29 +9,81 @@
 
   <body>
     <script>
-      var memory = new WebAssembly.Memory({initial:3});
+      var memory = new WebAssembly.Memory({initial: 3});
       var importObject = {
-          js: { mem: memory },
+          js: {
+              memory: memory,
+              table : new WebAssembly.Table(
+                  {initial: 256, element: "anyfunc"}),
+          },
           console: {
               log: function(arg) {
                   console.log(arg);
               },
               logstr: function(arg) {
-                  var i8 = new Uint8Array(memory.buffer);
-                  var start = arg, end = arg;
-                  while (i8[end] != 0) { end++; }
-                  var bytes = new Uint8Array(memory.buffer, start, end - start);
-                  var string = new TextDecoder('utf8').decode(bytes);
-                  console.log(string);
+                  console.log(getString(arg));
               },
+          },
+          io: {
+              printlnString: function(arg) {
+                  document.getElementById("console").innerText +=
+                      getString(arg) + "\n";
+              }
           },
       };
 
+      function getString(address) {
+          var i8 = new Uint8Array(memory.buffer);
+          var start = address, end = address;
+          while (i8[end] != 0) { end++; }
+          var bytes = new Uint8Array(memory.buffer, start, end - start);
+          return new TextDecoder('utf8').decode(bytes);
+      }
+
+      var ichigo = null;
+      var input_address = 51200;
+      function runEval() {
+          var str = document.getElementById("input").value;
+          document.getElementById("console").innerText +=
+              "> " + str + "\n";
+          document.getElementById("input").value = "";
+
+          var i8 = new Uint8Array(memory.buffer);
+          var str_array = new TextEncoder('utf8').encode(str);
+          for (var i = 0; i < str_array.length; i++) {
+              i8[input_address + i] = str_array[i];
+          }
+          i8[input_address + str_array.length] = 0;
+          console.log("Input: " + getString(input_address));
+          ichigo.instance.exports.readAndEval();
+      }
+      function runRead() {
+          var str = document.getElementById("input").value;
+          document.getElementById("console").innerText +=
+              "(read only)> " + str + "\n";
+          document.getElementById("input").value = "";
+
+          var i8 = new Uint8Array(memory.buffer);
+          var str_array = new TextEncoder('utf8').encode(str);
+          for (var i = 0; i < str_array.length; i++) {
+              i8[input_address + i] = str_array[i];
+          }
+          i8[input_address + str_array.length] = 0;
+          console.log("Input: " + getString(input_address));
+          ichigo.instance.exports.read();
+      }
+
       WebAssembly.instantiateStreaming(fetch('ichigo.wasm'), importObject)
     .then(obj => {
-        obj.instance.exports.exported_func();
+        ichigo = obj;
+        ichigo.instance.exports.exported_func();
     });
     </script>
+    <input type="text" id="input"></input>
+    <input type="button" value="eval" onClick="runEval()"></input>
+    <input type="button" value="read" onClick="runRead()"></input>
+    <div id="console">
+    </div>
   </body>
 
   </html>
