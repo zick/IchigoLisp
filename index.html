@@ -9,6 +9,7 @@
 
   <body>
     <script>
+      var output = "";
       var memory = new WebAssembly.Memory({initial: 3});
       var importObject = {
           js: {
@@ -28,7 +29,10 @@
               printlnString: function(arg) {
                   document.getElementById("console").innerText +=
                       getString(arg) + "\n";
-              }
+              },
+              output: function(arg) {
+                  output += getString(arg);
+              },
           },
       };
 
@@ -42,20 +46,25 @@
 
       var ichigo = null;
       var input_address = 51200;
-      function runEval() {
-          var str = document.getElementById("input").value;
-          document.getElementById("console").innerText +=
-              "> " + str + "\n";
-          document.getElementById("input").value = "";
-
+      function storeString(str) {
           var i8 = new Uint8Array(memory.buffer);
           var str_array = new TextEncoder('utf8').encode(str);
           for (var i = 0; i < str_array.length; i++) {
               i8[input_address + i] = str_array[i];
           }
           i8[input_address + str_array.length] = 0;
+      }
+      function runEval() {
+          var str = document.getElementById("input").value;
+          document.getElementById("console").innerText +=
+              "> " + str + "\n";
+          document.getElementById("input").value = "";
+
+          storeString(str);
           console.log("Input: " + getString(input_address));
+          output = "";
           ichigo.instance.exports.readAndEval();
+          document.getElementById("console").innerText += output + "\n";
       }
       function runRead() {
           var str = document.getElementById("input").value;
@@ -63,25 +72,72 @@
               "(read only)> " + str + "\n";
           document.getElementById("input").value = "";
 
-          var i8 = new Uint8Array(memory.buffer);
-          var str_array = new TextEncoder('utf8').encode(str);
-          for (var i = 0; i < str_array.length; i++) {
-              i8[input_address + i] = str_array[i];
-          }
-          i8[input_address + str_array.length] = 0;
+          storeString(str);
           console.log("Input: " + getString(input_address));
+          output = "";
           ichigo.instance.exports.read();
+          document.getElementById("console").innerText += output + "\n";
+      }
+      var test_data = [
+          ["nil", "NIL"],
+          ["t", "*T*"],
+          ["1", "1"],
+          ["'a", "A"],
+          ["'very-long-name", "VERY-LONG-NAME"],
+          ["(car '(a b c))", "A"],
+          ["(cdr '(a b c))", "(B C)"],
+          ["(cons 'a 'b)", "(A . B)"],
+          ["(cons (cdr '(a b c)) (car '(a b c)))", "((B C) . A)"],
+          ["(atom (car '(a b c)))", "*T*"],
+          ["(atom (cons 1 2))", "NIL"],
+          ["(eq 'a 'a)", "*T*"],
+          ["(eq 'a 'b)", "NIL"],
+          ["(eq (cons 1 2) (cons 1 2))", "NIL"],
+          ["(equal 1 1)", "*T*"],
+          ["(equal 1 2)", "NIL"],
+          ["(equal (cons 1 2) (cons 1 2))", "*T*"],
+          ["(equal (cons 1 2) (cons 1 3))", "NIL"],
+          ["(equal (cons 1 (cons 2 3)) (cons 1 (cons 2 3)))", "*T*"],
+          ["(list)", "NIL"],
+          ["(list (car '(a b c)))", "(A)"],
+          ["(list 1 2 3 4 5)", "(1 2 3 4 5)"],
+      ];
+      function runTest() {
+          var num_pass = 0, num_fail = 0;
+          for (i in test_data) {
+              var str = test_data[i][0];
+              var c = document.getElementById("console");
+              c.innerText += "> " + str + "\n";
+              storeString(str);
+              output = "";
+              ichigo.instance.exports.readAndEval();
+              c.innerText += output;
+              if (output == test_data[i][1]) {
+                  c.innerText += "  ;; OK" + "\n";
+                  num_pass++;
+              } else {
+                  c.innerText += "  ;; Failed" + "\n" +
+                      ";; Expected: " + test_data[i][1] + "\n" +
+                      ";; Actual: " + output + "\n";
+                  num_fail++;
+              }
+          }
+          document.getElementById("msg").innerText = "pass: " + num_pass +
+              "  fail: " + num_fail
       }
 
       WebAssembly.instantiateStreaming(fetch('ichigo.wasm'), importObject)
     .then(obj => {
         ichigo = obj;
-        ichigo.instance.exports.exported_func();
+        ichigo.instance.exports.init();
     });
     </script>
     <input type="text" id="input"></input>
     <input type="button" value="eval" onClick="runEval()"></input>
     <input type="button" value="read" onClick="runRead()"></input>
+    <input type="button" value="test" onClick="runTest()"></input>
+    <div id="msg" style="color:#0000ff">
+    </div>
     <div id="console">
     </div>
   </body>

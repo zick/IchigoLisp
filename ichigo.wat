@@ -11,6 +11,7 @@
  (func $log (import "console" "log") (param i32))
  (func $logstr (import "console" "logstr") (param i32))
  (func $printlnString (import "io" "printlnString") (param i32))
+ (func $output (import "io" "output") (param i32))
  ;; page 0: any
  ;; page 1: free list
  ;; page 2: stack
@@ -978,97 +979,20 @@
        (local.get $ret))
  ;;; END SUBR/FSUBR
 
- ;; TEST DATA
- (data (i32.const 20000) "nil\00")
- (data (i32.const 20100) "f\00")
- (data (i32.const 20200) "t\00")
- (data (i32.const 20300) "*t*\00")
- (data (i32.const 20400) "42\00")
- (data (i32.const 20500) "-256\00")
- (data (i32.const 20600) "'quoted-symbol\00")
- (data (i32.const 20700) "'(a b c)\00")
- (data (i32.const 20800) "'(a (b c) (d) . e)\00")
- (data (i32.const 20900) "(car '(a b c))\00")
- ;; END of TEST DATA
-
- (func (export "exported_func")
-       (local i32 i32)
-
-       (call $init)
-
-       (global.set $printp (i32.const 1024))
-       (global.set $readp (i32.const 20000))
-       (call $printObj
-             (call $eval (call $read) (i32.const 0)))
-       (call $logstr (i32.const 1024))
-
-       (global.set $printp (i32.const 1024))
-       (global.set $readp (i32.const 20100))
-       (call $printObj
-             (call $eval (call $read) (i32.const 0)))
-       (call $logstr (i32.const 1024))
-
-       (global.set $printp (i32.const 1024))
-       (global.set $readp (i32.const 20200))
-       (call $printObj
-             (call $eval (call $read) (i32.const 0)))
-       (call $logstr (i32.const 1024))
-
-       (global.set $printp (i32.const 1024))
-       (global.set $readp (i32.const 20300))
-       (call $printObj
-             (call $eval (call $read) (i32.const 0)))
-       (call $logstr (i32.const 1024))
-
-       (global.set $printp (i32.const 1024))
-       (global.set $readp (i32.const 20400))
-       (call $printObj
-             (call $eval (call $read) (i32.const 0)))
-       (call $logstr (i32.const 1024))
-
-       (global.set $printp (i32.const 1024))
-       (global.set $readp (i32.const 20500))
-       (call $printObj
-             (call $eval (call $read) (i32.const 0)))
-       (call $logstr (i32.const 1024))
-
-       (global.set $printp (i32.const 1024))
-       (global.set $readp (i32.const 20600))
-       (call $printObj
-             (call $eval (call $read) (i32.const 0)))
-       (call $logstr (i32.const 1024))
-
-       (global.set $printp (i32.const 1024))
-       (global.set $readp (i32.const 20700))
-       (call $printObj
-             (call $eval (call $read) (i32.const 0)))
-       (call $logstr (i32.const 1024))
-
-       (global.set $printp (i32.const 1024))
-       (global.set $readp (i32.const 20800))
-       (call $printObj
-             (call $eval (call $read) (i32.const 0)))
-       (call $logstr (i32.const 1024))
-
-       (global.set $printp (i32.const 1024))
-       (global.set $readp (i32.const 20900))
-       (call $printObj
-             (call $eval (call $read) (i32.const 0)))
-       (call $logstr (i32.const 1024))
-
-       )
+ (func (export "init")
+       (call $init))
 
  (func (export "readAndEval")
        (global.set $printp (i32.const 1024))
        (global.set $readp (i32.const 51200))
        (call $printObj
              (call $eval (call $read) (i32.const 0)))
-       (call $printlnString (i32.const 1024)))
+       (call $output (i32.const 1024)))
 
  (func (export "read")
        (global.set $printp (i32.const 1024))
        (global.set $readp (i32.const 51200))
        (call $printObj (call $read))
-       (call $printlnString (i32.const 1024)))
+       (call $output (i32.const 1024)))
 
  )
