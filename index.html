@@ -101,6 +101,10 @@
           ["(list)", "NIL"],
           ["(list (car '(a b c)))", "(A)"],
           ["(list 1 2 3 4 5)", "(1 2 3 4 5)"],
+          ["(if nil 1 2)", "2"],
+          ["(if t 1 2)", "1"],
+          ["(if (atom (cons 1 2)) (car '(a b)) (cdr '(a b)))", "(B)"],
+          ["(if (eq 1 1) (car '(a b)) (cdr '(a b)))", "A"],
       ];
       function runTest() {
           var num_pass = 0, num_fail = 0;

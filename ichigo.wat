@@ -28,48 +28,49 @@
  ;; stack pointer
  (global $sp (mut i32) (i32.const 131072))
 
- (data (i32.const 256) "NIL\00")  ;; +4
- (global $str_nil i32 (i32.const 256))
- (data (i32.const 260) "PNAME\00")  ;; +6
- (global $str_pname i32 (i32.const 260))
- (data (i32.const 266) "APVAL\00")  ;; +6
- (global $str_apval i32 (i32.const 266))
- (data (i32.const 272) "F\00")  ;; +2
- (global $str_f i32 (i32.const 272))
- (data (i32.const 274) "T\00")  ;; +2
- (global $str_t i32 (i32.const 274))
- (data (i32.const 276) "*T*\00")  ;; +4
- (global $str_tstar i32 (i32.const 276))
- (data (i32.const 280) ".\00")  ;; +2
- (global $str_dot i32 (i32.const 280))
- (data (i32.const 282) "QUOTE\00")  ;; +6
- (global $str_quote i32 (i32.const 282))
- (data (i32.const 288) "+\00")  ;; +2
- (global $str_plus i32 (i32.const 288))
- (data (i32.const 290) "SUBR\00")  ;; +5
- (global $str_subr i32 (i32.const 290))
- (data (i32.const 295) "FSUBR\00")  ;; +6
- (global $str_fsubr i32 (i32.const 295))
- (data (i32.const 301) "EXPR\00")  ;; +5
- (global $str_expr i32 (i32.const 301))
- (data (i32.const 306) "FEXPR\00")  ;; +6
- (global $str_fexpr i32 (i32.const 306))
- (data (i32.const 312) "CAR\00")  ;; +4
- (global $str_car i32 (i32.const 312))
- (data (i32.const 316) "CDR\00")  ;; +4
- (global $str_cdr i32 (i32.const 316))
- (data (i32.const 320) "CONS\00")  ;; +5
- (global $str_cons i32 (i32.const 320))
- (data (i32.const 325) "ATOM\00")  ;; +5
- (global $str_atom i32 (i32.const 325))
- (data (i32.const 330) "EQ\00")  ;; +3
- (global $str_eq i32 (i32.const 330))
- (data (i32.const 333) "EQUAL\00")  ;; +6
- (global $str_equal i32 (i32.const 333))
- (data (i32.const 339) "LIST\00")  ;; +5
- (global $str_list i32 (i32.const 339))
- (data (i32.const 344) "IF\00")  ;; +3
- (global $str_if i32 (i32.const 344))
+ ;;; Symbol strings [2000 - 4095]
+ (data (i32.const 2000) "NIL\00")  ;; 4
+ (global $str_nil i32 (i32.const 2000))
+ (data (i32.const 2010) "PNAME\00")  ;; 6
+ (global $str_pname i32 (i32.const 2010))
+ (data (i32.const 2020) "APVAL\00")  ;; 6
+ (global $str_apval i32 (i32.const 2020))
+ (data (i32.const 2030) "F\00")  ;; 2
+ (global $str_f i32 (i32.const 2030))
+ (data (i32.const 2040) "T\00")  ;; 2
+ (global $str_t i32 (i32.const 2040))
+ (data (i32.const 2050) "*T*\00")  ;; 4
+ (global $str_tstar i32 (i32.const 2050))
+ (data (i32.const 2060) ".\00")  ;; 2
+ (global $str_dot i32 (i32.const 2060))
+ (data (i32.const 2070) "QUOTE\00")  ;; 6
+ (global $str_quote i32 (i32.const 2070))
+ (data (i32.const 2080) "+\00")  ;; 2
+ (global $str_plus i32 (i32.const 2080))
+ (data (i32.const 2090) "SUBR\00")  ;; 5
+ (global $str_subr i32 (i32.const 2090))
+ (data (i32.const 2100) "FSUBR\00")  ;; 6
+ (global $str_fsubr i32 (i32.const 2100))
+ (data (i32.const 2110) "EXPR\00")  ;; 5
+ (global $str_expr i32 (i32.const 2110))
+ (data (i32.const 2120) "FEXPR\00")  ;; 6
+ (global $str_fexpr i32 (i32.const 2120))
+ (data (i32.const 2130) "CAR\00")  ;; 4
+ (global $str_car i32 (i32.const 2130))
+ (data (i32.const 2140) "CDR\00")  ;; 4
+ (global $str_cdr i32 (i32.const 2140))
+ (data (i32.const 2150) "CONS\00")  ;; 5
+ (global $str_cons i32 (i32.const 2150))
+ (data (i32.const 2160) "ATOM\00")  ;; 5
+ (global $str_atom i32 (i32.const 2160))
+ (data (i32.const 2170) "EQ\00")  ;; 3
+ (global $str_eq i32 (i32.const 2170))
+ (data (i32.const 2180) "EQUAL\00")  ;; 6
+ (global $str_equal i32 (i32.const 2180))
+ (data (i32.const 2190) "LIST\00")  ;; 5
+ (global $str_list i32 (i32.const 2190))
+ (data (i32.const 2200) "IF\00")  ;; 3
+ (global $str_if i32 (i32.const 2200))
 
  (global $boffo i32 (i32.const 10240))
  (global $boffop (mut i32) (i32.const 10240))
@@ -78,28 +79,28 @@
 
  (global $oblist (mut i32) (i32.const 0))
 
- ;;; Lisp Objects
- (global $sym_nil i32 (i32.const 0))
- (global $sym_pname i32 (i32.const 8))
- (global $sym_apval i32 (i32.const 16))
- (global $sym_f i32 (i32.const 24))
- (global $sym_t i32 (i32.const 32))
- (global $sym_tstar i32 (i32.const 40))
- (global $sym_dot i32 (i32.const 48))
- (global $sym_quote i32 (i32.const 56))
- (global $sym_plus i32 (i32.const 64))
- (global $sym_subr i32 (i32.const 72))
- (global $sym_fsubr i32 (i32.const 80))
- (global $sym_expr i32 (i32.const 88))
- (global $sym_fexpr i32 (i32.const 96))
- (global $sym_car i32 (i32.const 104))
- (global $sym_cdr i32 (i32.const 112))
- (global $sym_cons i32 (i32.const 120))
- (global $sym_atom i32 (i32.const 128))
- (global $sym_eq i32 (i32.const 136))
- (global $sym_equal i32 (i32.const 144))
- (global $sym_list i32 (i32.const 152))
- (global $sym_if i32 (i32.const 160))
+ ;;; Lisp Objects [0 - 1999 (0x7cf)]
+ (global $sym_nil i32 (i32.const 0x000))
+ (global $sym_pname i32 (i32.const 0x008))
+ (global $sym_apval i32 (i32.const 0x010))
+ (global $sym_f i32 (i32.const 0x018))
+ (global $sym_t i32 (i32.const 0x020))
+ (global $sym_tstar i32 (i32.const 0x028))
+ (global $sym_dot i32 (i32.const 0x030))
+ (global $sym_quote i32 (i32.const 0x038))
+ (global $sym_plus i32 (i32.const 0x040))
+ (global $sym_subr i32 (i32.const 0x048))
+ (global $sym_fsubr i32 (i32.const 0x050))
+ (global $sym_expr i32 (i32.const 0x058))
+ (global $sym_fexpr i32 (i32.const 0x060))
+ (global $sym_car i32 (i32.const 0x068))
+ (global $sym_cdr i32 (i32.const 0x070))
+ (global $sym_cons i32 (i32.const 0x078))
+ (global $sym_atom i32 (i32.const 0x080))
+ (global $sym_eq i32 (i32.const 0x088))
+ (global $sym_equal i32 (i32.const 0x090))
+ (global $sym_list i32 (i32.const 0x098))
+ (global $sym_if i32 (i32.const 0x0a0))
 
  (func $push (param $val i32)
        (i32.store (global.get $sp) (local.get $val))
