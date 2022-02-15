@@ -30,7 +30,7 @@
                   document.getElementById("console").innerText +=
                       getString(arg) + "\n";
               },
-              output: function(arg) {
+              outputString: function(arg) {
                   output += getString(arg);
               },
           },
@@ -81,6 +81,7 @@
       var test_data = [
           ["nil", "NIL"],
           ["t", "*T*"],
+          ["f", "NIL"],
           ["1", "1"],
           ["'a", "A"],
           ["'very-long-name", "VERY-LONG-NAME"],
@@ -105,6 +106,14 @@
           ["(if t 1 2)", "1"],
           ["(if (atom (cons 1 2)) (car '(a b)) (cdr '(a b)))", "(B)"],
           ["(if (eq 1 1) (car '(a b)) (cdr '(a b)))", "A"],
+
+          ["", /R4/],
+          ["(", /R4/],
+          ["((", /R4/],
+          ["(a b .", /R4/],
+          ["))))", /R1/],
+          ["(a .)", /R1/],
+          ["(a . b c)", /R1/],
       ];
       function runTest() {
           var num_pass = 0, num_fail = 0;
@@ -116,7 +125,15 @@
               output = "";
               ichigo.instance.exports.readAndEval();
               c.innerText += output;
-              if (output == test_data[i][1]) {
+
+              var pass = false;
+              if (test_data[i][1] instanceof RegExp) {
+                  pass = test_data[i][1].test(output);
+              } else {
+                  pass = (test_data[i][1] == output);
+              }
+
+              if (pass) {
                   c.innerText += "  ;; OK" + "\n";
                   num_pass++;
               } else {

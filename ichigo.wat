@@ -3,7 +3,8 @@
 ;;; ...G00: cons (G: gc mark)
 ;;; ...G10: other pointer (G: gc mark)
 ;;; 0: NIL
-;;; -2: mark for symbol (same format as "other pointer")
+;;; -2 (1...1110): mark for symbol (same format as "other pointer")
+;;; -6 (1...1010): mark for error (same format as "other pointer")
 ;;; name: list of packed characters like ("abc" "def" "gh\00")
 ;;; name1: a packed characters like "abc"
 
@@ -11,7 +12,7 @@
  (func $log (import "console" "log") (param i32))
  (func $logstr (import "console" "logstr") (param i32))
  (func $printlnString (import "io" "printlnString") (param i32))
- (func $output (import "io" "output") (param i32))
+ (func $outputString (import "io" "outputString") (param i32))
  ;; page 0: any
  ;; page 1: free list
  ;; page 2: stack
@@ -21,12 +22,22 @@
  (type $subr_type (func (result i32)))
  (type $fsubr_type (func (result i32)))
 
+ (global $tag_symbol i32 (i32.const -2))
+ (global $tag_error i32 (i32.const -6))
+
  ;; points to the head of free list
  (global $fp (mut i32) (i32.const 65536))
  ;; maximum used cell address
  (global $used (mut i32) (i32.const 0))
  ;; stack pointer
  (global $sp (mut i32) (i32.const 131072))
+
+ (global $boffo i32 (i32.const 10240))
+ (global $boffop (mut i32) (i32.const 10240))
+ (global $readp (mut i32) (i32.const 0))
+ (global $printp (mut i32) (i32.const 0))
+
+ (global $oblist (mut i32) (i32.const 0))
 
  ;;; Symbol strings [2000 - 4095]
  (data (i32.const 2000) "NIL\00")  ;; 4
@@ -72,13 +83,6 @@
  (data (i32.const 2200) "IF\00")  ;; 3
  (global $str_if i32 (i32.const 2200))
 
- (global $boffo i32 (i32.const 10240))
- (global $boffop (mut i32) (i32.const 10240))
- (global $readp (mut i32) (i32.const 0))
- (global $printp (mut i32) (i32.const 0))
-
- (global $oblist (mut i32) (i32.const 0))
-
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
  (global $sym_pname i32 (i32.const 0x008))
@@ -101,6 +105,14 @@
  (global $sym_equal i32 (i32.const 0x090))
  (global $sym_list i32 (i32.const 0x098))
  (global $sym_if i32 (i32.const 0x0a0))
+
+ ;;; Other Strings [5000 - 9999?]
+ (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
+ (global $str_err_eof i32 (i32.const 5000))
+ (data (i32.const 5020) "R1: UNEXPECTED CHARACTER\00")  ;; 25
+ (global $str_err_unexpected i32 (i32.const 5020))
+ (data (i32.const 5050) "ERROR\00")  ;; 6
+ (global $str_err_generic i32 (i32.const 5050))
 
  (func $push (param $val i32)
        (i32.store (global.get $sp) (local.get $val))
@@ -242,6 +254,32 @@
  (func $fixnum2int (param $n i32) (result i32)
        (i32.shr_s (local.get $n) (i32.const 1)))
 
+ ;;; Writes a 1-byte character to the address pointed by `printp` and
+ ;;; increments `printp`. Also concatenates '\00'.
+ (func $printChar (param $c i32)
+       (i32.store8 (global.get $printp) (local.get $c))
+       (global.set $printp (i32.add (global.get $printp) (i32.const 1)))
+       (i32.store8 (global.get $printp) (i32.const 0)))
+
+ (func $printString (param $str i32)
+       (local $c i32)
+       (block $block
+         (loop $loop
+            (local.set $c (i32.load8_u (local.get $str)))
+            ;; Note: this intentionally copies '\00'
+            (i32.store8 (global.get $printp) (local.get $c))
+            (br_if $block (i32.eqz (local.get $c)))
+            (global.set $printp (i32.add (global.get $printp) (i32.const 1)))
+            (local.set $str (i32.add (local.get $str) (i32.const 1)))
+            (br $loop))))
+
+ (func $printError (param $err i32)
+       (call $printChar (i32.const 60))  ;; '<'
+       (if (call $fixnump (call $cdr (local.get $err)))
+           (call $printString (call $fixnum2int (call $cdr (local.get $err))))
+           (call $printString (global.get $str_err_generic)))
+       (call $printChar (i32.const 62)))  ;; '>'
+
  ;;; Output a string representation of a fixnum to `printp`.
  ;;; `printp` should point to '\00'.
  (func $printFixnum (param $n i32)
@@ -275,15 +313,25 @@
        (i32.eqz (i32.and (local.get $obj) (i32.const 1))))
 
  (func $specialTagp (param $obj i32) (result i32)
-       (i32.eq (local.get $obj) (i32.const -2)))
+        (if (i32.eq (local.get $obj) (global.get $tag_symbol))
+            (return (i32.const 1)))
+        (if (i32.eq (local.get $obj) (global.get $tag_error))
+            (return (i32.const 1)))
+        (i32.const 0))
 
  (func $symbolp (param $obj i32) (result i32)
        (local $ret i32)
        (local.set $ret (i32.const 0))
        (if (call $tag0p (local.get $obj))
-           (if (i32.eq (call $car (local.get $obj)) (i32.const -2))
+           (if (i32.eq (call $car (local.get $obj)) (global.get $tag_symbol))
                (local.set $ret (i32.const 1))))
        (local.get $ret))
+
+ (func $errorp (param $obj i32) (result i32)
+       (if (call $tag0p (local.get $obj))
+           (if (i32.eq (call $car (local.get $obj)) (global.get $tag_error))
+               (return (i32.const 1))))
+       (i32.const 0))
 
  (func $consp (param $obj i32) (result i32)
        (local $ret i32)
@@ -355,9 +403,16 @@
            (call $setcdr (local.get $lst) (local.get $elm)))
        (local.get $ret))
 
- (func $printChar (param $c i32)
-       (i32.store8 (global.get $printp) (local.get $c))
-       (global.set $printp (i32.add (global.get $printp) (i32.const 1))))
+ (func $assoc (param $key i32) (param $alist i32) (result i32)
+       (block $block
+         (loop $loop
+            (br_if $block (i32.eqz (call $consp (local.get $alist))))
+            (if (i32.eq (call $car (call $car (local.get $alist)))
+                        (local.get $key))
+                (return (call $car (local.get $alist))))
+            (local.set $alist (call $cdr (local.get $alist)))
+            (br $loop)))
+       (i32.const 0))
 
  (func $printList (param $obj i32)
        (local $first i32)
@@ -382,6 +437,10 @@
        (i32.store8 (global.get $printp) (i32.const 0)))
 
  (func $printObj (param $obj i32)
+       (if (call $errorp (local.get $obj))
+           (then
+            (call $printError (local.get $obj))
+            (return)))
        (if (call $symbolp (local.get $obj))
            (then
             (call $printSymbol (local.get $obj))
@@ -431,7 +490,7 @@
  (func $makeNewSym (result i32)
        (local $sym i32)
        (local $cell i32)
-       (local.set $sym (call $cons (i32.const -2) (i32.const 0)))
+       (local.set $sym (call $cons (global.get $tag_symbol) (i32.const 0)))
        (call $push (local.get $sym))  ;; For GC
        (local.set $cell (call $makename (global.get $boffo)))
        (call $setcdr (local.get $sym) (local.get $cell))  ;; For GC
@@ -505,6 +564,11 @@
             (call $makeNum (i32.mul (local.get $num) (local.get $sign))))
            (local.set $ret (call $makeSym)))
        (local.get $ret))
+
+ (func $makeStrError (param $str i32) (result i32)
+       (call $cons
+             (global.get $tag_error)
+             (call $int2fixnum (local.get $str))))
 
  ;;; Skips spaces in `readp`.
  (func $isSpace (param $c i32) (result i32)
@@ -580,12 +644,18 @@
             (local.set $c (i32.load8_u (global.get $readp)))
             (if (i32.eqz (local.get $c))  ;; Empty
                 (then
-                 (local.set $ret (i32.const 0))  ;; TODO: Return an error
+                 (local.set
+                  $ret
+                  (call $makeStrError (global.get $str_err_eof)))
                  (br $block)))
             (if (i32.eq (local.get $c) (i32.const 41))  ;; RPar
                 (br $block))
             (call $push (local.get $ret))  ;; For GC (ret)
             (local.set $elm (call $read))
+            (if (call $errorp (local.get $elm))  ;; Error on reading elm
+                (then (local.set $ret (local.get $elm))
+                      (call $drop (call $pop))  ;; For GC ()
+                      (br $block)))
             ;; Special read for dotted list
             (if (i32.eq (local.get $elm) (global.get $sym_dot))
                 (then
@@ -594,15 +664,22 @@
                  (if (i32.eq (local.get $c) (i32.const 41))  ;; RPar after dot
                      (then
                       (call $drop (call $pop))  ;; For GC ()
-                      (local.set $ret (i32.const 0))  ;; TODO: Return an error
+                      (local.set
+                       $ret
+                       (call $makeStrError (global.get $str_err_unexpected)))
                       (br $block)))
                  (local.set $elm (call $read))
                  (call $drop (call $pop))  ;; For GC ()
+                 (if (call $errorp (local.get $elm))  ;; Error on reading elm
+                     (then (local.set $ret (local.get $elm))
+                           (br $block)))
                  (call $skipSpaces)
                  (local.set $c (i32.load8_u (global.get $readp)))
                  (if (i32.ne (local.get $c) (i32.const 41))  ;; Not RPar
                      (then
-                      (local.set $ret (i32.const 0))  ;; TODO: Return an error
+                      (local.set
+                       $ret
+                       (call $makeStrError (global.get $str_err_unexpected)))
                       (br $block)))
                  (br $block)))  ;; valid dotted list
             ;; Proper list
@@ -612,6 +689,8 @@
             (call $drop (call $pop))  ;; For GC (ret)
             (call $drop (call $pop))  ;; For GC ()
             (br $loop)))
+       (if (call $errorp (local.get $ret))
+           (return (local.get $ret)))
        (global.set $readp (i32.add (global.get $readp) (i32.const 1)))
        (local.set $ret (call $nreverse (local.get $ret)))
        (if (i32.ne (local.get $elm) (i32.const 0))  ;; dotted list
@@ -626,10 +705,13 @@
        (local.set $c (i32.load8_u (global.get $readp)))
        (block $block
          (if (i32.eqz (local.get $c))  ;; Empty
-             (then (local.set $ret (i32.const 0))  ;; TODO: Return an error
-                   (br $block)))
+             (then
+              (local.set $ret (call $makeStrError (global.get $str_err_eof)))
+              (br $block)))
          (if (i32.eq (local.get $c) (i32.const 41))  ;; RPar
-             (then (local.set $ret (i32.const 0))  ;; TODO: Return an error
+             (then (local.set
+                    $ret
+                    (call $makeStrError (global.get $str_err_unexpected)))
                    (br $block)))
          (if (i32.eq (local.get $c) (i32.const 40))  ;; LPar
              (then
@@ -640,6 +722,8 @@
              (then
               (global.set $readp (i32.add (global.get $readp) (i32.const 1)))
               (local.set $ret (call $read))
+              (if (call $errorp (local.get $ret))
+                  (br $block))
               (call $push (local.get $ret))  ;; For GC
               (local.set $ret (call $cons (local.get $ret) (i32.const 0)))
               (call $drop (call $pop)) (call $push (local.get $ret))  ;; For GC
@@ -719,26 +803,43 @@
   (call $push (local.get $a))  ;; For GC (e, a)
   (block $evalbk
     (loop $evallp
-       ;; Evaluate an atom
+       ;; Evaluate an atom (except symbol)
        (call $log (i32.const 10000001));;;;;
        (if (i32.eqz (local.get $e))
            (then (local.set $ret (i32.const 0))
                  (br $evalbk)))
+       (if (call $errorp (local.get $e))
+           (then (local.set $ret (local.get $e))
+                 (br $evalbk)))
+       (if (call $numberp (local.get $e))
+           (then (local.set $ret (local.get $e))
+                 (br $evalbk)))
+       ;; Evaluate a symbol
        (call $log (i32.const 10000002));;;;;
        (if (call $symbolp (local.get $e))
            (then
+            ;; Get a value from APVAL
             (local.set $tmp
                        (call $get (local.get $e) (global.get $sym_apval)))
             (if (i32.ne (local.get $tmp) (i32.const 0))
                 (then
                  (local.set $ret (call $car (local.get $tmp)))
-                 (br $evalbk)))))
-       (call $log (i32.const 10000003));;;;;
-       (if (call $numberp (local.get $e))
-           (then (local.set $ret (local.get $e))
                  (br $evalbk)))
+            ;; Get a value from alist
+            (local.set $tmp (call $assoc (local.get $e) (local.get $a)))
+            (if (i32.ne (local.get $tmp) (i32.const 0))
+                (then
+                 (local.set $ret (call $cdr (local.get $tmp)))
+                 (br $evalbk)))
+            ;; The symbol has no value
+            ;; TODO: Retrun the specific error
+            (local.set $ret (call $makeStrError (global.get $str_err_generic)))
+            (br $evalbk)))
+       (call $log (i32.const 10000003));;;;;
        (if (i32.eqz (call $consp (local.get $e)))  ;; Unknown object
-           (then (local.set $ret (i32.const 0))  ;; TODO: Return an error
+           (then (local.set
+                  $ret
+                  (call $makeStrError (global.get $str_err_generic)))
                  (br $evalbk)))
        (call $log (i32.const 10000004));;;;;
        ;; Evaluate a compound expression
@@ -748,7 +849,7 @@
            (then (local.set $ret (call $car (local.get $args)))
                  (br $evalbk)))
        ;; TODO: Other special forms
-       (call $log (i32.const 10000004));;;;;
+       (call $log (i32.const 10000005));;;;;
        ;; Check if fn is FSUBR
        (local.set $tmp
                   (call $get (local.get $fn) (global.get $sym_fsubr)))
@@ -766,7 +867,7 @@
                  (local.set $e (local.get $ret))
                  (br $evallp)))
             (br $evalbk)))
-       (call $log (i32.const 10000005));;;;;
+       (call $log (i32.const 10000006));;;;;
        ;; Check if fn is SUBR
        (local.set $tmp
                   (call $get (local.get $fn) (global.get $sym_subr)))
@@ -785,6 +886,7 @@
   (call $drop (call $pop))  ;; For GC ()
   (call $log (global.get $sp));;;;;
   (call $log (i32.const 22222));;;;;
+  (call $log (local.get $ret));;;;
   (local.get $ret))
 
  ;; Creates a minimum symbol.
@@ -795,7 +897,7 @@
        (local.set $cell (call $cons (local.get $cell) (i32.const 0)))
        (local.set $cell (call $cons (global.get $sym_pname) (local.get $cell)))
        (call $setcdr (local.get $sym) (local.get $cell))
-       (call $setcar (local.get $sym) (i32.const -2))
+       (call $setcar (local.get $sym) (global.get $tag_symbol))
        (call $pushToOblist (local.get $sym)))
  ;; Creates a symbol with APVAL.
  ;; This function doesn't care GC
@@ -809,7 +911,7 @@
                               (local.get $cell)))
        (local.set $cell (call $cons (global.get $sym_apval) (local.get $cell)))
        (call $setcdr (local.get $sym) (local.get $cell))
-       (call $setcar (local.get $sym) (i32.const -2))
+       (call $setcar (local.get $sym) (global.get $tag_symbol))
        (call $pushToOblist (local.get $sym)))
  ;; Creates a symbol with a key-value pair.
  ;; This function doesn't care GC
@@ -822,7 +924,7 @@
        (local.set $cell (call $cons (local.get $val) (local.get $cell)))
        (local.set $cell (call $cons (local.get $key) (local.get $cell)))
        (call $setcdr (local.get $sym) (local.get $cell))
-       (call $setcar (local.get $sym) (i32.const -2))
+       (call $setcar (local.get $sym) (global.get $tag_symbol))
        (call $pushToOblist (local.get $sym)))
 
  (func $init
@@ -983,17 +1085,21 @@
  (func (export "init")
        (call $init))
 
+ (data (i32.const 9000) "((akey1 . 1) (akey2 . aval))\00")
  (func (export "readAndEval")
-       (global.set $printp (i32.const 1024))
+       (local $alist i32)
+       (local.set $alist (i32.const 0))
+
+       (global.set $printp (i32.const 40960))
        (global.set $readp (i32.const 51200))
        (call $printObj
-             (call $eval (call $read) (i32.const 0)))
-       (call $output (i32.const 1024)))
+             (call $eval (call $read) (local.get $alist)))
+       (call $outputString (i32.const 40960)))
 
  (func (export "read")
-       (global.set $printp (i32.const 1024))
+       (global.set $printp (i32.const 40960))
        (global.set $readp (i32.const 51200))
        (call $printObj (call $read))
-       (call $output (i32.const 1024)))
+       (call $outputString (i32.const 40960)))
 
  )
