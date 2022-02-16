@@ -114,6 +114,12 @@
           ["))))", /R1/],
           ["(a .)", /R1/],
           ["(a . b c)", /R1/],
+          ["ub", /A8/],
+          ["(cons 1 ub)", /A8/],
+          ["(if ub 1 2)", /A8/],
+          ["(if t ub 2)", /A8/],
+          ["(if f ub 2)", "2"],
+          ["(list 1 2 3 4 5 ub 6)", /A8/],
       ];
       function runTest() {
           var num_pass = 0, num_fail = 0;
