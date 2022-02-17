@@ -16,7 +16,8 @@
  ;; page 0: any
  ;; page 1: free list
  ;; page 2: stack
- (import "js" "memory" (memory 3))
+ ;; page 3: expr/fexpr
+ (import "js" "memory" (memory 4))
  (import "js" "table" (table 256 funcref))
 
  (type $subr_type (func (result i32)))
@@ -57,7 +58,7 @@
  (data (i32.const 2070) "QUOTE\00")  ;; 6
  (global $str_quote i32 (i32.const 2070))
  (data (i32.const 2080) "+\00")  ;; 2
- (global $str_plus i32 (i32.const 2080))
+ (global $str_plus_sign i32 (i32.const 2080))
  (data (i32.const 2090) "SUBR\00")  ;; 5
  (global $str_subr i32 (i32.const 2090))
  (data (i32.const 2100) "FSUBR\00")  ;; 6
@@ -82,6 +83,14 @@
  (global $str_list i32 (i32.const 2190))
  (data (i32.const 2200) "IF\00")  ;; 3
  (global $str_if i32 (i32.const 2200))
+ (data (i32.const 2210) "LAMBDA\00")  ;; 7
+ (global $str_lambda i32 (i32.const 2210))
+ (data (i32.const 2220) "PUTPROP\00")  ;; 8
+ (global $str_putprop i32 (i32.const 2220))
+ (data (i32.const 2230) "RECLAIM\00")  ;; 8
+ (global $str_reclaim i32 (i32.const 2230))
+ (data (i32.const 2240) "PLUS\00")  ;; 5
+ (global $str_plus i32 (i32.const 2240))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -105,6 +114,10 @@
  (global $sym_equal i32 (i32.const 0x090))
  (global $sym_list i32 (i32.const 0x098))
  (global $sym_if i32 (i32.const 0x0a0))
+ (global $sym_lambda i32 (i32.const 0x0a8))
+ (global $sym_putprop i32 (i32.const 0x0b0))
+ (global $sym_reclaim i32 (i32.const 0x0b8))
+ (global $sym_plus_sign i32 (i32.const 0x0c0))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -115,6 +128,10 @@
  (global $str_err_generic i32 (i32.const 5050))
  (data (i32.const 5060) "A8: UNBOUND VARIABLE\00")  ;; 21
  (global $str_err_unbound i32 (i32.const 5060))
+ (data (i32.const 5090) "A2: NO FUNCTION DEFINITION\00")  ;; 27
+ (global $str_err_nodef i32 (i32.const 5090))
+ (data (i32.const 5120) "P1: PRINT NON-OBJECT\00")  ;; 21
+ (global $str_err_print i32 (i32.const 5120))
 
  (func $push (param $val i32)
        (i32.store (global.get $sp) (local.get $val))
@@ -128,6 +145,19 @@
        (i32.load (local.get 0)))
  (func $cdr (param i32) (result i32)
        (i32.load (i32.add (local.get 0) (i32.const 4))))
+ (func $cadr (param $cell i32) (result i32)
+       (call $car (call $cdr (local.get $cell))))
+ (func $caddr (param $cell i32) (result i32)
+       (call $car (call $cdr (call $cdr (local.get $cell)))))
+
+ (func $safecar (param $obj i32) (result i32)
+       (if (call $consp (local.get $obj))
+           (return (call $car (local.get $obj))))
+       (i32.const 0))
+ (func $safecdr (param $obj i32) (result i32)
+       (if (call $consp (local.get $obj))
+           (return (call $cdr (local.get $obj))))
+       (i32.const 0))
 
  (func $rawcons (result i32)
        (local $prev i32)
@@ -311,8 +341,12 @@
        (global.set $printp (i32.add (global.get $printp) (local.get $size)))
        (i32.store8 (global.get $printp) (i32.const 0)))
 
- (func $tag0p (param $obj i32) (result i32)
-       (i32.eqz (i32.and (local.get $obj) (i32.const 1))))
+ (func $tag00p (param $obj i32) (result i32)
+       (i32.eqz (i32.and (local.get $obj) (i32.const 3))))
+
+ (func $tag10p (param $obj i32) (result i32)
+       (i32.eq (i32.and (local.get $obj) (i32.const 3))
+               (i32.const 2)))
 
  (func $specialTagp (param $obj i32) (result i32)
         (if (i32.eq (local.get $obj) (global.get $tag_symbol))
@@ -324,13 +358,13 @@
  (func $symbolp (param $obj i32) (result i32)
        (local $ret i32)
        (local.set $ret (i32.const 0))
-       (if (call $tag0p (local.get $obj))
+       (if (call $tag00p (local.get $obj))
            (if (i32.eq (call $car (local.get $obj)) (global.get $tag_symbol))
                (local.set $ret (i32.const 1))))
        (local.get $ret))
 
  (func $errorp (param $obj i32) (result i32)
-       (if (call $tag0p (local.get $obj))
+       (if (call $tag00p (local.get $obj))
            (if (i32.eq (call $car (local.get $obj)) (global.get $tag_error))
                (return (i32.const 1))))
        (i32.const 0))
@@ -338,7 +372,7 @@
  (func $consp (param $obj i32) (result i32)
        (local $ret i32)
        (local.set $ret (i32.const 0))
-       (if (call $tag0p (local.get $obj))
+       (if (call $tag00p (local.get $obj))
            (if (i32.eqz (call $specialTagp (call $car (local.get $obj))))
                (local.set $ret (i32.const 1))))
        (local.get $ret))
@@ -360,17 +394,20 @@
 
  (func $get (param $obj i32) (param $key i32) (result i32)
        (local $p i32)
+       (if (i32.eqz (call $symbolp (local.get $obj)))
+           (return (i32.const 0)))
        (local.set $p (call $prop (local.get $obj) (local.get $key)))
        (if (i32.eqz (local.get $p))
            (return (i32.const 0)))
        (call $car (local.get $p)))
 
- (func $putprop (param $obj i32) (param $key i32) (param $val i32)
+ (func $putprop (param $obj i32) (param $val i32) (param $key i32)
        (local $p i32)
        (local.set $p (call $prop (local.get $obj) (local.get $key)))
        (if (i32.eqz (local.get $p))
            (then
-            (local.set $p (call $cons (i32.const 0) (i32.const 0)))
+            (local.set $p
+                       (call $cons (i32.const 0) (call $cdr (local.get $obj))))
             (call $push (local.get $p))  ;; For GC
             (call $setcdr
                   (local.get $obj)
@@ -439,6 +476,8 @@
        (i32.store8 (global.get $printp) (i32.const 0)))
 
  (func $printObj (param $obj i32)
+       (if (call $specialTagp (local.get $obj))
+           (local.set $obj (call $makeStrError (global.get $str_err_print))))
        (if (call $errorp (local.get $obj))
            (then
             (call $printError (local.get $obj))
@@ -815,10 +854,30 @@
  (func $evpop
        (global.set $sp (i32.sub (global.get $sp) (i32.const 16))))
 
+ ;; All arguments must be protected from GC
+ (func $pairlis (param $x i32) (param $y i32) (param $z i32) (result i32)
+       (local $tmp i32)
+       (block $block
+         (loop $loop
+            (br_if $block (i32.eqz (call $consp (local.get $x))))
+            (call $push (local.get $z))  ;; For GC (z)
+            (local.set $tmp (call $cons
+                                  (call $car (local.get $x))
+                                  (call $safecar (local.get $y))))
+            (call $push (local.get $tmp))  ;; For GC (z tmp)
+            (local.set $z (call $cons (local.get $tmp) (local.get $z)))
+            (call $drop (call $pop))  ;; For GC (z)
+            (call $drop (call $pop))  ;; For GC ()
+            (local.set $x (call $cdr (local.get $x)))
+            (local.set $y (call $safecdr (local.get $y)))
+            (br $loop)))
+       (local.get $z))
+
  (func
   $eval (param $e i32) (param $a i32) (result i32)
   (local $ret i32)
   (local $tmp i32)
+  (local $fn_lookup i32)
   (local $fn i32)
   (local $args i32)
   (local.set $ret (i32.const 0))
@@ -869,41 +928,102 @@
        ;; Evaluate a compound expression
        (local.set $fn (call $car (local.get $e)))
        (local.set $args (call $cdr (local.get $e)))
-       ;; Check if fn is FSUBR
-       (local.set $tmp
-                  (call $get (local.get $fn) (global.get $sym_fsubr)))
-       (if (i32.ne (local.get $tmp) (i32.const 0))
-           (then
+       (local.set $fn_lookup (i32.const 0))
+       (loop $complp
+          ;; Check if fn is FSUBR
+          (local.set $tmp
+                     (call $get (local.get $fn) (global.get $sym_fsubr)))
+          (if (i32.ne (local.get $tmp) (i32.const 0))
+              (then
+               (local.set
+                $ret
+                (call_indirect
+                 (type $fsubr_type)
+                 (call $fixnum2int (local.get $tmp))))
+               ;; Check whether the return value should be evaluated
+               (if (i32.ne (call $pop) (i32.const 0))
+                   (then  ;; need to evaluate return value
+                    (i32.store (i32.sub (global.get $sp) (i32.const 8))
+                               (local.get $ret))  ;; replace `e` in stack
+                    (local.set $e (local.get $ret))
+                    (br $evallp)))
+               (br $evalbk)))
+          (call $log (i32.const 10000005));;;;;
+          ;; Check if fn is SUBR
+          (local.set $tmp
+                     (call $get (local.get $fn) (global.get $sym_subr)))
+          (if (i32.ne (local.get $tmp) (i32.const 0))
+              (then
+               (local.set $ret (call $evpush (local.get $args) (local.get $a)))
+               ;; Call the SUBR only if the arguments don't contain errors.
+               (if (i32.eqz (local.get $ret))
+                   (local.set
+                    $ret
+                    (call_indirect
+                     (type $subr_type)
+                     (call $fixnum2int (call $car (local.get $tmp))))))
+               (call $evpop)
+               (br $evalbk)))
+          ;; Check if fn is SUBR
+          (local.set $tmp
+                     (call $get (local.get $fn) (global.get $sym_expr)))
+          (if (i32.ne (local.get $tmp) (i32.const 0))
+              (local.set $fn (local.get $tmp)))
+          ;; Don't lookup fn from alist twice (to avoid infinite loop)
+          (if (i32.and (call $symbolp (local.get $fn))
+                       (i32.ne (local.get $fn_lookup) (i32.const 0)))
+              (then (local.set
+                          $ret
+                          (call $makeStrError (global.get $str_err_nodef)))
+                         (br $evalbk)))
+          ;; Find fn from alist if fn is a symbol
+          (if (call $symbolp (local.get $fn))
+              (then
+               (local.set $fn_lookup (i32.const 1))
+               (local.set $tmp (call $assoc (local.get $fn) (local.get $a)))
+               (if (i32.eqz (local.get $tmp))
+                   (then (local.set
+                          $ret
+                          (call $makeStrError (global.get $str_err_nodef)))
+                         (br $evalbk)))
+               (local.set $fn (call $cdr (local.get $tmp)))
+               (br $complp)))
+          )  ;; complp
+       ;; Note that $args is not protected from GC
+       (call $log (i32.const 10000006));;;;;
+       (local.set $args (call $evlis (local.get $args) (local.get $a)))
+       (block $applybk
+         (loop $applylp
+            ;; fn shouldn't be an atom (we check whether fn is a symbol above)
+            (if (i32.eqz (call $consp (local.get $fn)))
+                (then (local.set
+                       $ret
+                       (call $makeStrError (global.get $str_err_nodef)))
+                      (br $evalbk)))
+            (call $log (i32.const 10000007));;;;;
+            (if (i32.eq (call $car (local.get $fn)) (global.get $sym_lambda))
+                (then
+                 (call $push (local.get $args))  ;; For GC (e, a, args)
+                 (local.set
+                  $tmp
+                  (call $pairlis
+                        (call $cadr (local.get $fn)) (local.get $args)
+                        (local.get $a)))
+                 (call $drop (call $pop))  ;; For GC (e, a)
+                 (local.set $e (call $caddr (local.get $fn)))
+                 (local.set $a (local.get $tmp))
+                 (i32.store (i32.sub (global.get $sp) (i32.const 8))
+                            (local.get $e))  ;; replace `e` in stack
+                 (i32.store (i32.sub (global.get $sp) (i32.const 4))
+                            (local.get $a))  ;; replace `a` in stack
+                 (br $evallp)))
+            ;; Unknown function
             (local.set
              $ret
-             (call_indirect
-              (type $fsubr_type)
-              (call $fixnum2int (local.get $tmp))))
-            ;; Check whether the return value should be evaluated
-            (if (i32.ne (call $pop) (i32.const 0))
-                (then  ;; need to evaluate return value
-                 (i32.store (i32.sub (global.get $sp) (i32.const 8))
-                            (local.get $ret))  ;; replace `e` in stack
-                 (local.set $e (local.get $ret))
-                 (br $evallp)))
-            (br $evalbk)))
-       (call $log (i32.const 10000005));;;;;
-       ;; Check if fn is SUBR
-       (local.set $tmp
-                  (call $get (local.get $fn) (global.get $sym_subr)))
-       (if (i32.ne (local.get $tmp) (i32.const 0))
-           (then
-            (local.set $ret (call $evpush (local.get $args) (local.get $a)))
-            ;; Call the SUBR only if the arguments don't contain errors.
-            (if (i32.eqz (local.get $ret))
-                (local.set
-                 $ret
-                 (call_indirect
-                  (type $subr_type)
-                  (call $fixnum2int (call $car (local.get $tmp))))))
-            (call $evpop)
-            (br $evalbk)))
-       ))
+             ;; TODO: Return a specific error
+             (call $makeStrError (global.get $str_err_generic)))
+            ))  ;; applybk
+       ))  ;; evalbk
   (call $drop (call $pop))  ;; For GC (e)
   (call $drop (call $pop))  ;; For GC ()
   (call $log (global.get $sp));;;;;
@@ -971,6 +1091,7 @@
        (call $initsym0 (global.get $sym_fsubr) (global.get $str_fsubr))
        (call $initsym0 (global.get $sym_expr) (global.get $str_expr))
        (call $initsym0 (global.get $sym_fexpr) (global.get $str_fexpr))
+       (call $initsym0 (global.get $sym_lambda) (global.get $str_lambda))
        (call $initsym1
              (global.get $sym_nil) (global.get $str_nil) (i32.const 0))
        (call $initsym1
@@ -995,6 +1116,10 @@
              (global.get $idx_eq) (i32.const 2))
        (call $initsymSubr (global.get $sym_equal) (global.get $str_equal)
              (global.get $idx_equal) (i32.const 2))
+       (call $initsymSubr (global.get $sym_putprop) (global.get $str_putprop)
+             (global.get $idx_putprop) (i32.const 3))
+       (call $initsymSubr (global.get $sym_reclaim) (global.get $str_reclaim)
+             (global.get $idx_reclaim) (i32.const 3))
 
        (call $initsymKv
              (global.get $sym_list) (global.get $str_list)
@@ -1005,6 +1130,12 @@
        (call $initsymKv
              (global.get $sym_quote) (global.get $str_quote)
              (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_quote)))
+       (call $initsymKv
+             (global.get $sym_plus) (global.get $str_plus)
+             (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_plus)))
+       (call $initsymKv
+             (global.get $sym_plus_sign) (global.get $str_plus_sign)
+             (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_plus)))
        )
 
  ;;; SUBR/FSUBR
@@ -1046,6 +1177,12 @@
  (global $idx_if i32 (i32.const 107))
  (elem (i32.const 108) $fsubr_quote)
  (global $idx_quote i32 (i32.const 108))
+ (elem (i32.const 109) $subr_putprop)
+ (global $idx_putprop i32 (i32.const 109))
+ (elem (i32.const 110) $subr_putprop)
+ (global $idx_reclaim i32 (i32.const 110))
+ (elem (i32.const 111) $fsubr_plus)
+ (global $idx_plus i32 (i32.const 111))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -1128,10 +1265,85 @@
        (local.set $args (call $cdr (call $getEArg)))
        (call $push (i32.const 0))  ;; Don't need to eval return value
        (call $car (local.get $args)))
+
+ (func $subr_putprop (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local $arg3 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (local.set $arg3 (call $getArg3))
+       (call $putprop (local.get $arg1) (local.get $arg2) (local.get $arg3))
+       (local.get $arg1))
+
+ (func $fsubr_plus (result i32)
+       (local $acc i32)
+       (local $tmp i32)
+       (local $ret i32)
+       (local $a i32)
+       (local $args i32)
+       (local.set $acc (i32.const 0))
+       (local.set $ret (i32.const 0))
+       (local.set $a (call $getAArg))
+       (local.set $args (call $cdr (call $getEArg)))
+       (local.set $args (call $evlis (local.get $args) (local.get $a)))
+       (block $block
+         (if (call $errorp (local.get $args))
+             (then (local.set $ret (local.get $args))
+                   (br $block)))
+         (loop $loop
+            (br_if $block (i32.eqz (call $consp (local.get $args))))
+            (local.set $tmp (call $car (local.get $args)))
+            (if (call $fixnump (local.get $tmp))
+                (then
+                 (local.set $acc (i32.add (call $fixnum2int (local.get $tmp))
+                                          (local.get $acc))))
+                (else
+                 (local.set
+                  ;; TODO: Retrun the specific error
+                  $ret (call $makeStrError (global.get $str_err_generic)))
+                 (br $block)))
+            (local.set $args (call $cdr (local.get $args)))
+            (br $loop)))
+       (if (i32.eqz (local.get $ret))
+           (local.set $ret (call $int2fixnum (local.get $acc))))
+       (call $push (i32.const 0))  ;; Don't need to eval return value
+       (local.get $ret))
+
+ (func $subr_reclaim (result i32)
+       ;; TODO: run GC
+       (i32.const 0))
  ;;; END SUBR/FSUBR
 
+ ;;; EXPR/FEXPR
+ (global $str_expr_defs i32 (i32.const 196608))
+ (data
+  (i32.const 196608)  ;; 64KB * 3
+  "(PUTPROP 'DEFINE '(LAMBDA (L) "
+  "(IF L "
+  "(CONS (PUTPROP (CAR (CAR L)) (CAR (CDR (CAR L))) 'EXPR) (DEFINE (CDR L))) "
+  "L)) "
+  "'EXPR) "
+  "NIL "  ;; END OF EXPR
+  "\00")
+
+ (func $initexpr
+       (local $ret i32)
+       (global.set $readp (global.get $str_expr_defs))
+       (loop $loop
+          (global.set $printp (i32.const 40960))
+          (local.set $ret (call $eval (call $read) (i32.const 0)))
+          (call $printObj (local.get $ret))
+          (call $logstr (i32.const 40960))
+          (br_if $loop (i32.eqz (i32.or
+                                 (i32.eq (local.get $ret) (i32.const 0))
+                                 (call $errorp (local.get $ret)))))))
+ ;;; END EXPR/FEXPR
+
  (func (export "init")
-       (call $init))
+       (call $init)
+       (call $initexpr)
+)
 
  (func (export "readAndEval")
        (local $alist i32)

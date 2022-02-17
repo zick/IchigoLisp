@@ -10,7 +10,7 @@
   <body>
     <script>
       var output = "";
-      var memory = new WebAssembly.Memory({initial: 3});
+      var memory = new WebAssembly.Memory({initial: 4});
       var importObject = {
           js: {
               memory: memory,
@@ -106,6 +106,21 @@
           ["(if t 1 2)", "1"],
           ["(if (atom (cons 1 2)) (car '(a b)) (cdr '(a b)))", "(B)"],
           ["(if (eq 1 1) (car '(a b)) (cdr '(a b)))", "A"],
+          ["((lambda(x) x) 1)", "1"],
+          ["((lambda(x y) (cons y x)) 1 2)", "(2 . 1)"],
+          ["((lambda(x) ((lambda(y) (cons x y)) 2)) 1)", "(1 . 2)"],
+          ["((lambda(f) (f 1)) '(lambda (x) (cons x x)))", "(1 . 1)"],
+          ["((lambda(f)(f 1 2)) 'cons)", "(1 . 2)"],
+          ["(define '((kaar (lambda(x) (car (car x))))" +
+           "(kadr (lambda(x) (car (cdr x))))))", "(KAAR KADR)"],
+          ["(kaar '((a b) (c d)))", "A"],
+          ["(kadr '((a b) (c d)))", "(C D)"],
+          ["(+)", "0"],
+          ["(+ 1)", "1"],
+          ["(+ 1 2 3)", "6"],
+          ["(define '((add-from-0-to-n (lambda(n)(if (eq n 0) 0 " +
+           "(+ n (add-from-0-to-n (+ n -1)))))))))", "(ADD-FROM-0-TO-N)"],
+          ["(add-from-0-to-n 10)", "55"],
 
           ["", /R4/],
           ["(", /R4/],
@@ -120,6 +135,11 @@
           ["(if t ub 2)", /A8/],
           ["(if f ub 2)", "2"],
           ["(list 1 2 3 4 5 ub 6)", /A8/],
+          ["(+ 1 2 3 4 5 ub 6)", /A8/],
+          ["(1 2)", /A2/],
+          ["(ub 2)", /A2/],
+          ["((lambda(a)(a 1)) 'a)", /A2/],
+          ["(car 'a)", /P1/],
       ];
       function runTest() {
           var num_pass = 0, num_fail = 0;
