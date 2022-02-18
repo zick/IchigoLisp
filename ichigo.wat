@@ -1,12 +1,49 @@
 ;;; $ wat2wasm ichigo.wat -o ichigo.wasm
-;;; ...XX1: fixnum
-;;; ...G00: cons (G: gc mark)
-;;; ...G10: other pointer (G: gc mark)
-;;; 0: NIL
-;;; -2 (1...1110): mark for symbol (same format as "other pointer")
-;;; -6 (1...1010): mark for error (same format as "other pointer")
-;;; name: list of packed characters like ("abc" "def" "gh\00")
-;;; name1: a packed characters like "abc"
+;;;
+;;; <LISP POINTER>
+;;;
+;;; Lisp pointer is a 4-byte pointer that contains an address or number with
+;;; tags. The last 3 bits in Lisp pointers are used as tags:
+;;;   [MSB]                      [LSB] (32 bit)
+;;;   XXXXXXXXXXXXXXXXXXXXXXXXXXXXXNFG
+;;;     N: whether it's a non-double-word-cell pointer
+;;;     F: whether it's a fixnum
+;;;     G: whether it's marked in GC
+;;;
+;;; Lisp pointers can represent 3 types of data using the tags:
+;;;   ...X1G: fixnum (N bit is used as a part of a 30-bit integer)
+;;;   ...00G: pointer to a double-word cell
+;;;   ...10G: pointer to an other object
+;;;
+;;; Examples:
+;;;    0: a pointer to a double-word cell located at 0 (NIL)
+;;;    8: a pointer to a double-word cell located at 8 (PNAME)
+;;;    2: a fixnum representing 0
+;;;    6: a fixnum representing 1
+;;;   -2: a fixnum representing -1
+;;;
+;;;
+;;; <DOUBLE WORD CELL>
+;;;
+;;; Double-word cell is an 8-byte object that consists of 2 Lisp pointers. The
+;;; former one is called CAR and the latter one is called CDR.
+;;; Garbage collector marks the G bit only in the CAR part. The G bit in the
+;;; CDR part is never used.
+;;; The CAR part can contain special values to represent some types of objects
+;;; such as symbols or errors. Double-word cells which don't contain the
+;;; special values are called "cons cells".
+;;;
+;;; Special values:
+;;;   -4 (1...11100): represents a symbol
+;;;   -12 (1...10100): represents an error
+;;;
+;;; The special values are pseudo pointers that cannot be accessed.
+;;;
+;;;
+;;; <Terminologies>
+;;;
+;;; name: list of fixnums representing packed characters like ("abc" "de\00")
+;;; name1: a fixnum representing packed characters like "abc"
 
 (module
  (func $log (import "console" "log") (param i32))
@@ -23,13 +60,22 @@
  (type $subr_type (func (result i32)))
  (type $fsubr_type (func (result i32)))
 
- (global $tag_symbol i32 (i32.const -2))
- (global $tag_error i32 (i32.const -6))
+ (global $mark_bit i32 (i32.const 1))
+ (global $unmark_mask i32 (i32.const 0xfffffffe))
 
+ (global $tag_symbol i32 (i32.const -4))
+ (global $tag_error i32 (i32.const -12))
+
+ ;; start address of the heap (inclusive)
+ (global $heap_start (mut i32) (i32.const 65536))
  ;; points to the head of free list
  (global $fp (mut i32) (i32.const 65536))
- ;; maximum used cell address
- (global $used (mut i32) (i32.const 0))
+ ;; fill pointer of heap
+ (global $fillp (mut i32) (i32.const 0))
+ ;; end address of the heap (exclusive)
+ (global $heap_end (mut i32) (i32.const 131072))
+ ;; address of stack bottom
+ (global $stack_bottom (mut i32) (i32.const 131072))
  ;; stack pointer
  (global $sp (mut i32) (i32.const 131072))
 
@@ -118,6 +164,8 @@
  (global $sym_putprop i32 (i32.const 0x0b0))
  (global $sym_reclaim i32 (i32.const 0x0b8))
  (global $sym_plus_sign i32 (i32.const 0x0c0))
+ (global $err_gc i32 (i32.const 0x0c8))
+ (global $primitive_obj_end i32 (i32.const 0x0d0))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -132,6 +180,8 @@
  (global $str_err_nodef i32 (i32.const 5090))
  (data (i32.const 5120) "P1: PRINT NON-OBJECT\00")  ;; 21
  (global $str_err_print i32 (i32.const 5120))
+ (data (i32.const 5150) "GC2: NOT ENOUGH WORDS\00")  ;; 21
+ (global $str_err_gc i32 (i32.const 5150))
 
  (func $push (param $val i32)
        (i32.store (global.get $sp) (local.get $val))
@@ -141,10 +191,70 @@
       (i32.load (global.get $sp)))
  (func $drop (param i32))
 
- (func $car (param i32) (result i32)
-       (i32.load (local.get 0)))
- (func $cdr (param i32) (result i32)
-       (i32.load (i32.add (local.get 0) (i32.const 4))))
+ (func $int2fixnum (param $n i32) (result i32)
+       (i32.add (i32.shl (local.get $n) (i32.const 2)) (i32.const 2)))
+ (func $fixnum2int (param $n i32) (result i32)
+       (i32.shr_s (local.get $n) (i32.const 2)))
+
+ ;;; Returns whether obj is a fixnum
+ (func $fixnump (param $obj i32) (result i32)
+       (i32.eq (i32.and (local.get $obj) (i32.const 2))
+               (i32.const 2)))
+
+ ;;; Returns whether ojb points to a double word cell.
+ (func $dwcellp (param $obj i32) (result i32)
+       (i32.eqz (i32.and (local.get $obj) (i32.const 6))))
+
+ ;;; Returns whether obj is an "other" pointer.
+ (func $otherp (param $obj i32) (result i32)
+       (i32.eq (i32.and (local.get $obj) (i32.const 6))
+               (i32.const 4)))
+
+ ;;; Returns whether obj is a pseudo pointer that has special meaning.
+ (func $specialTagp (param $obj i32) (result i32)
+       ;; Ignore GC bit
+       (local.set $obj (i32.and (local.get $obj) (i32.const 0xfffffffe)))
+       (if (i32.eq (local.get $obj) (global.get $tag_symbol))
+           (return (i32.const 1)))
+       (if (i32.eq (local.get $obj) (global.get $tag_error))
+           (return (i32.const 1)))
+       (i32.const 0))
+
+ ;;; Returns whether obj points to a double word cell that contains symbol tag
+ ;;; in CAR.
+ (func $symbolp (param $obj i32) (result i32)
+       (if (call $dwcellp (local.get $obj))
+           (if (i32.eq (i32.and (call $car (local.get $obj))
+                                (i32.const 0xfffffffe))
+                       (global.get $tag_symbol))
+               (return (i32.const 1))))
+       (i32.const 0))
+
+ ;;; Returns whether obj points to a double word cell that contains error tag
+ ;;; in CAR.
+ (func $errorp (param $obj i32) (result i32)
+       (if (call $dwcellp (local.get $obj))
+           (if (i32.eq (i32.and (call $car (local.get $obj))
+                                (i32.const 0xfffffffe))
+                       (global.get $tag_error))
+               (return (i32.const 1))))
+       (i32.const 0))
+
+ ;;; Returns whether obj points to a double word cell that doesn't contain
+ ;;; special tag in CAR.
+ (func $consp (param $obj i32) (result i32)
+       (if (call $dwcellp (local.get $obj))
+           (if (i32.eqz (call $specialTagp (call $car (local.get $obj))))
+               (return (i32.const 1))))
+       (i32.const 0))
+
+ (func $numberp (param $obj i32) (result i32)
+       (call $fixnump (local.get $obj)))
+
+ (func $car (param $cell i32) (result i32)
+       (i32.load (local.get $cell)))
+ (func $cdr (param $cell i32) (result i32)
+       (i32.load (i32.add (local.get $cell) (i32.const 4))))
  (func $cadr (param $cell i32) (result i32)
        (call $car (call $cdr (local.get $cell))))
  (func $caddr (param $cell i32) (result i32)
@@ -159,45 +269,59 @@
            (return (call $cdr (local.get $obj))))
        (i32.const 0))
 
+ (func $setcar (param $cell i32) (param $val i32)
+       (i32.store (local.get $cell) (local.get $val)))
+ (func $setcdr (param $cell i32) (param $val i32)
+       (i32.store (i32.add (local.get $cell) (i32.const 4))
+                  (local.get $val)))
+
+ (global $linear_mode (mut i32) (i32.const 1))
  (func $rawcons (result i32)
-       (local $prev i32)
-       (local.set $prev (global.get $fp))
-       (if (i32.lt_u (global.get $used) (global.get $fp))  ;; used < fp
+       (local $ret i32)
+       (local.set $ret (global.get $fp))
+       (if (i32.ge_u (local.get $ret) (global.get $heap_end))
            (then
-            (global.set $used (local.get $prev))
-            (global.set $fp (i32.add (local.get $prev) (i32.const 8))))
+            (call $drop (call $garbageCollect))
+            (if (i32.ge_u (local.get $ret) (global.get $heap_end))
+                (then
+                 (call $logstr (global.get $str_err_gc))
+                 (return (global.get $err_gc))))))
+       (if (global.get $linear_mode)
+           (then
+            (global.set $fp (i32.add (global.get $fp) (i32.const 8)))
+            (global.set $fillp (global.get $fp)))
            (else
-            (global.set $fp (call $cdr (local.get $prev)))))
-       (local.get $prev))  ;; return prev
+            (global.set $fp (call $cdr (global.get $fp)))
+            (if (i32.eq (global.get $fp) (global.get $fillp))
+                (then
+                 (call $log (i32.const 123412349))
+                (global.set $linear_mode (i32.const 1))))))
+       (local.get $ret))
 
  (func $cons (param $a i32) (param $d i32) (result i32)
       (local $cell i32)
       (local.set $cell (call $rawcons))
+      (if (call $errorp (local.get $cell))
+          (return (local.get $cell)))
       (call $setcar (local.get $cell) (local.get $a))
       (call $setcdr (local.get $cell) (local.get $d))
       (local.get $cell))
 
- (func $setcar (param i32) (param i32)
-       (i32.store (local.get 0) (local.get 1)))
- (func $setcdr (param i32) (param i32)
-       (i32.store (i32.add (local.get 0) (i32.const 4))
-                  (local.get 1)))
-
  ;;; Returns a fixnum representing a packed characters from a string.
  (func $makename1 (param $str i32) (result i32)
        (local $ret i32)
-       ;; xxcccccc => cccccc01
+       ;; xxcccccc => cccccc02
        (local.set
         $ret
         (i32.add
          (i32.shl
           (i32.and (i32.load (local.get $str)) (i32.const 0x00ffffff))
           (i32.const 8))
-         (i32.const 1)))
-       ;; xxxx0001 => 00000001
+         (i32.const 2)))
+       ;; xxxx0002 => 00000002
        (if (i32.eqz (i32.and (local.get $ret) (i32.const 0x0000ff00)))
-           (local.set $ret (i32.const 1)))
-       ;; xx00cc01 => 0000cc01
+           (local.set $ret (i32.const 2)))
+       ;; xx00cc02 => 0000cc02
        (if (i32.eqz (i32.and (local.get $ret) (i32.const 0x00ff0000)))
            (local.set $ret (i32.and (local.get $ret) (i32.const 0x0000ffff))))
        (local.get $ret))
@@ -216,7 +340,7 @@
                     (local.set $ret (i32.const 3)))))))
       (local.get $ret))
 
- ;;; Returns a list of packed characters.
+ ;;; Returns a list of fixnums representing packed characters.
  (func $makename (param $str i32) (result i32)
        (local $ret i32)
        (local $size i32)
@@ -224,6 +348,7 @@
        (local $cur i32)
        (local $name1 i32)
        (local.set $ret (i32.const 0))
+       ;; TODO: rewrite this using nreverse.
        (loop $loop
           (local.set $name1 (call $makename1 (local.get $str)))
           (local.set $size (call $name1Size (local.get $name1)))
@@ -281,11 +406,6 @@
        (call $printName
              (call $get (local.get $sym) (global.get $sym_pname))))
 
- (func $int2fixnum (param $n i32) (result i32)
-       (i32.add (i32.shl (local.get $n) (i32.const 1)) (i32.const 1)))
- (func $fixnum2int (param $n i32) (result i32)
-       (i32.shr_s (local.get $n) (i32.const 1)))
-
  ;;; Writes a 1-byte character to the address pointed by `printp` and
  ;;; increments `printp`. Also concatenates '\00'.
  (func $printChar (param $c i32)
@@ -340,48 +460,6 @@
           (br_if $fill_loop (i32.gt_s (local.get $n) (i32.const 0))))
        (global.set $printp (i32.add (global.get $printp) (local.get $size)))
        (i32.store8 (global.get $printp) (i32.const 0)))
-
- (func $tag00p (param $obj i32) (result i32)
-       (i32.eqz (i32.and (local.get $obj) (i32.const 3))))
-
- (func $tag10p (param $obj i32) (result i32)
-       (i32.eq (i32.and (local.get $obj) (i32.const 3))
-               (i32.const 2)))
-
- (func $specialTagp (param $obj i32) (result i32)
-        (if (i32.eq (local.get $obj) (global.get $tag_symbol))
-            (return (i32.const 1)))
-        (if (i32.eq (local.get $obj) (global.get $tag_error))
-            (return (i32.const 1)))
-        (i32.const 0))
-
- (func $symbolp (param $obj i32) (result i32)
-       (local $ret i32)
-       (local.set $ret (i32.const 0))
-       (if (call $tag00p (local.get $obj))
-           (if (i32.eq (call $car (local.get $obj)) (global.get $tag_symbol))
-               (local.set $ret (i32.const 1))))
-       (local.get $ret))
-
- (func $errorp (param $obj i32) (result i32)
-       (if (call $tag00p (local.get $obj))
-           (if (i32.eq (call $car (local.get $obj)) (global.get $tag_error))
-               (return (i32.const 1))))
-       (i32.const 0))
-
- (func $consp (param $obj i32) (result i32)
-       (local $ret i32)
-       (local.set $ret (i32.const 0))
-       (if (call $tag00p (local.get $obj))
-           (if (i32.eqz (call $specialTagp (call $car (local.get $obj))))
-               (local.set $ret (i32.const 1))))
-       (local.get $ret))
-
- (func $fixnump (param $obj i32) (result i32)
-       (i32.and (local.get $obj) (i32.const 1)))
-
- (func $numberp (param $obj i32) (result i32)
-       (call $fixnump (local.get $obj)))
 
  (func $prop (param $obj i32) (param $key i32) (result i32)
        (local.set $obj (call $cdr (local.get $obj)))
@@ -452,6 +530,25 @@
             (local.set $alist (call $cdr (local.get $alist)))
             (br $loop)))
        (i32.const 0))
+
+ (func $length (param $obj i32) (result i32)
+       (local $len i32)
+       (local.set $len (i32.const 0))
+       (loop $loop
+          (if (i32.eqz (call $consp (local.get $obj)))
+              (return (local.get $len)))
+          (local.set $len (i32.add (local.get $len) (i32.const 1)))
+          (local.set $obj (call $cdr (local.get $obj)))
+          (br $loop))
+       (i32.const 0))  ;; unreachable
+
+ (func $simpleSymbolp (param $obj i32) (result i32)
+       (if (i32.eqz (call $symbolp (local.get $obj)))
+           (return (i32.const 0)))
+       ;; Simple symbol should be (mark PNAME name)
+       (if (i32.ne (call $length (call $cdr (local.get $obj))) (i32.const 2))
+           (return (i32.const 0)))
+       (i32.eq (call $cadr (local.get $obj)) (global.get $sym_pname)))
 
  (func $printList (param $obj i32)
        (local $first i32)
@@ -610,6 +707,10 @@
        (call $cons
              (global.get $tag_error)
              (call $int2fixnum (local.get $str))))
+
+ (func $embedStrError (param $obj i32) (param $str i32)
+       (call $setcar (local.get $obj) (global.get $tag_error))
+       (call $setcdr (local.get $obj) (call $int2fixnum (local.get $str))))
 
  ;;; Skips spaces in `readp`.
  (func $isSpace (param $c i32) (result i32)
@@ -1031,6 +1132,178 @@
   (call $log (local.get $ret));;;;
   (local.get $ret))
 
+ ;;; GARBAGE COLLECTOR
+ (global $num_mark (mut i32) (i32.const 0))
+ (global $num_unmark (mut i32) (i32.const 0))
+ (global $num_reclaim (mut i32) (i32.const 0))
+
+ (func $insideHeap (param $obj i32) (result i32)
+       (i32.and (i32.le_u (global.get $heap_start) (local.get $obj))
+                (i32.lt_u (local.get $obj) (global.get $heap_end))))
+
+ (func $marked (param $cell i32) (result i32)
+       (i32.and (i32.load (local.get $cell))
+                (global.get $mark_bit)))
+ (func $markCell (param $cell i32)
+       (i32.store (local.get $cell) (i32.or (i32.load (local.get $cell))
+                                            (global.get $mark_bit))))
+ (func $unmarkCell (param $cell i32)
+       (i32.store (local.get $cell) (i32.and (i32.load (local.get $cell))
+                                             (global.get $unmark_mask))))
+
+ ;;; Returns the number of marked objects.
+ ;;; `obj` is a Lisp pointer.
+ (func $markObj (param $obj i32)
+       (local $ca i32)
+       (local $cd i32)
+       (loop $loop
+          ;; Ignore special tag e.g. symbol tag or error tag
+          (if (call $specialTagp (local.get $obj))
+              (return))
+          ;; Ignore fixnum
+          (if (call $fixnump (local.get $obj))
+              (return))
+          ;; So far "other" pointers don't exist
+          (if (call $otherp (local.get $obj))
+              (then (call $log (i32.const 80000999));;;;;;
+                    (call $log (local.get $obj))
+                    (unreachable)))
+          ;; The obj must points to a double word cell
+          (if (i32.eqz (call $dwcellp (local.get $obj)))
+              (then (call $logstr (global.get $str_err_generic))
+                    (call $log (local.get $obj))
+                    (unreachable)))
+          ;; The obj must not point to beyond heap_end
+          (if (i32.ge_u (local.get $obj) (global.get $heap_end))
+              (then (call $log (i32.const 80000888));;;;;;
+                    (call $log (local.get $obj))
+                    (unreachable)))
+
+          ;; Ignore objects which are marked
+          (if (call $marked (local.get $obj))
+              (return))
+          ;; Fetch CAR/CDR before making
+          (local.set $ca (call $car (local.get $obj)))
+          (local.set $cd (call $cdr (local.get $obj)))
+          ;; Mark the object and its children
+          (if (call $insideHeap (local.get $obj))
+              (then
+               (global.set
+                $num_mark (i32.add (global.get $num_mark) (i32.const 1)))
+               (call $markCell (local.get $obj))))
+          (call $markObj (local.get $ca))
+          (local.set $obj (local.get $cd))
+          (br $loop)))
+
+ (func $markStack
+       (local $p i32)
+       (local.set $p (global.get $sp))
+       (block $block
+         (loop $loop
+            (local.set $p (i32.sub (local.get $p) (i32.const 4)))
+            (br_if $block (i32.lt_u (local.get $p) (global.get $stack_bottom)))
+            (call $markObj (i32.load (local.get $p)))
+            (br $loop))))
+
+ (func $markPrimitiveObj
+       (local $p i32)
+       (local.set $p (i32.const 0))
+       (loop $loop
+          (if (i32.eq (local.get $p) (global.get $primitive_obj_end))
+              (return))
+          (call $markObj (local.get $p))
+          (local.set $p (i32.add (local.get $p) (i32.const 8)))
+          (br $loop)))
+
+ (func $markOblist
+       (local $p i32)
+       (local $sym i32)
+       (local.set $p (global.get $oblist))
+       (loop $loop
+          ;;;(call $log (local.get $p));;;;
+          (if (i32.eqz (local.get $p))
+              (return))
+          (local.set $sym (call $car (local.get $p)))
+          (if (i32.eqz (call $simpleSymbolp (call $car (local.get $p))))
+              (call $markObj (call $car (local.get $p))))
+          (local.set $p (call $cdr (local.get $p)))
+          (br $loop)))
+
+ (func $alivep (param $obj i32) (result i32)
+       (i32.or (i32.lt_u (local.get $obj) (global.get $primitive_obj_end))
+               (call $marked (local.get $obj))))
+
+ (func $reconstructOblist
+       (local $p i32)
+       (local $next i32)
+       (local $alive i32)
+       (call $log (call $length (global.get $oblist)));;;
+       (local.set $p (global.get $oblist))
+       (global.set $oblist (i32.const 0))
+       (loop $loop
+          (if (i32.eqz (call $consp (local.get $p)))
+              (then
+               (global.set $oblist (call $nreverse (global.get $oblist)))
+               (call $markObj (global.get $oblist))
+               (call $log (call $length (global.get $oblist)));;;
+               (return)))
+          (local.set $next (call $cdr (local.get $p)))
+          (local.set $alive (call $marked (local.get $p)))
+          (if (i32.eqz (local.get $alive))
+              ;; Note: don't touch CAR when p is marked
+              (local.set $alive (call $alivep (call $car (local.get $p)))))
+          (if (local.get $alive)
+              (then
+               (call $setcdr (local.get $p) (global.get $oblist))
+               (global.set $oblist (local.get $p))))
+          (local.set $p (local.get $next))
+          (br $loop)))
+
+ (func $sweepHeap
+       (local $p i32)
+       (local.set $p (global.get $heap_start))
+       (global.set $fp (global.get $fillp))
+       (loop $loop
+          (if (i32.ge_u (local.get $p) (global.get $fillp))
+              (then (call $log (global.get $num_unmark))
+                    (call $log (global.get $num_reclaim))
+                    (global.set
+                     $linear_mode
+                     (i32.eq (global.get $fp) (global.get $fillp)))
+                    (call $log (i32.const 12341234))(call $log (global.get $linear_mode))
+                    (return)))
+          (if (call $marked (local.get $p))
+              (then
+               (call $unmarkCell (local.get $p))
+               (global.set
+                $num_unmark (i32.add (global.get $num_unmark) (i32.const 1))))
+              (else
+               (call $setcar (local.get $p) (global.get $sym_f))  ;; For debug
+               (call $setcdr (local.get $p) (global.get $fp))
+               (global.set $fp (local.get $p))
+               (global.set
+                $num_reclaim
+                (i32.add (global.get $num_reclaim) (i32.const 1)))))
+          (local.set $p (i32.add (local.get $p) (i32.const 8)))
+          (br $loop)))
+
+ (func $garbageCollect (result i32)
+       (global.set $num_mark (i32.const 0))
+       (global.set $num_unmark (i32.const 0))
+       (global.set $num_reclaim (i32.const 0))
+       (call $log (i32.const 80000000));;;;;;
+
+       (call $markOblist)
+       (call $markPrimitiveObj)
+       (call $markStack)
+       (call $log (i32.const 80000001));;;;;;
+       (call $reconstructOblist)
+       (call $log (global.get $num_mark))
+       (call $log (i32.const 80000002));;;;;;
+       (call $sweepHeap)
+       (i32.const 0))
+ ;;; END GARBAGE COLLECTOR
+
  ;; Creates a minimum symbol.
  ;; This function doesn't care GC
  (func $initsym0 (param $sym i32) (param $str i32)
@@ -1136,6 +1409,8 @@
        (call $initsymKv
              (global.get $sym_plus_sign) (global.get $str_plus_sign)
              (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_plus)))
+
+       (call $embedStrError (global.get $err_gc) (global.get $str_err_gc))
        )
 
  ;;; SUBR/FSUBR
@@ -1179,7 +1454,7 @@
  (global $idx_quote i32 (i32.const 108))
  (elem (i32.const 109) $subr_putprop)
  (global $idx_putprop i32 (i32.const 109))
- (elem (i32.const 110) $subr_putprop)
+ (elem (i32.const 110) $subr_reclaim)
  (global $idx_reclaim i32 (i32.const 110))
  (elem (i32.const 111) $fsubr_plus)
  (global $idx_plus i32 (i32.const 111))
@@ -1311,8 +1586,7 @@
        (local.get $ret))
 
  (func $subr_reclaim (result i32)
-       ;; TODO: run GC
-       (i32.const 0))
+       (call $garbageCollect))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR
