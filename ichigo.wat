@@ -180,8 +180,16 @@
  (global $str_err_nodef i32 (i32.const 5090))
  (data (i32.const 5120) "P1: PRINT NON-OBJECT\00")  ;; 21
  (global $str_err_print i32 (i32.const 5120))
- (data (i32.const 5150) "GC2: NOT ENOUGH WORDS\00")  ;; 21
+ (data (i32.const 5150) "GC2: NOT ENOUGH WORDS\00")  ;; 22
  (global $str_err_gc i32 (i32.const 5150))
+ (data (i32.const 5180) "GARBAGE COLLECTING...\00")  ;; 22
+ (global $str_msg_gc1 i32 (i32.const 5180))
+ (data (i32.const 5210) "MARKED: \00")  ;; 9
+ (global $str_msg_gc2 i32 (i32.const 5210))
+ (data (i32.const 5220) "RECLAIMED: \00")  ;; 12
+ (global $str_msg_gc3 i32 (i32.const 5220))
+ (data (i32.const 5240) "OBLIST: \00")  ;; 9
+ (global $str_msg_gc4 i32 (i32.const 5240))
 
  (func $push (param $val i32)
        (i32.store (global.get $sp) (local.get $val))
@@ -293,9 +301,7 @@
            (else
             (global.set $fp (call $cdr (global.get $fp)))
             (if (i32.eq (global.get $fp) (global.get $fillp))
-                (then
-                 (call $log (i32.const 123412349))
-                (global.set $linear_mode (i32.const 1))))))
+                (global.set $linear_mode (i32.const 1)))))
        (local.get $ret))
 
  (func $cons (param $a i32) (param $d i32) (result i32)
@@ -412,6 +418,16 @@
        (i32.store8 (global.get $printp) (local.get $c))
        (global.set $printp (i32.add (global.get $printp) (i32.const 1)))
        (i32.store8 (global.get $printp) (i32.const 0)))
+
+ (func $printComment
+       (call $printChar (i32.const 59))  ;; ';'
+       (call $printChar (i32.const 32)))  ;; ' '
+
+ (func $terpri
+       (call $printChar (i32.const 10)))  ;; '\n'
+ (func $terprif
+       (call $terpri)
+       (call $fflush))
 
  (func $printString (param $str i32)
        (local $c i32)
@@ -1165,19 +1181,13 @@
               (return))
           ;; So far "other" pointers don't exist
           (if (call $otherp (local.get $obj))
-              (then (call $log (i32.const 80000999));;;;;;
-                    (call $log (local.get $obj))
-                    (unreachable)))
+              (unreachable))
           ;; The obj must points to a double word cell
           (if (i32.eqz (call $dwcellp (local.get $obj)))
-              (then (call $logstr (global.get $str_err_generic))
-                    (call $log (local.get $obj))
-                    (unreachable)))
+              (unreachable))
           ;; The obj must not point to beyond heap_end
           (if (i32.ge_u (local.get $obj) (global.get $heap_end))
-              (then (call $log (i32.const 80000888));;;;;;
-                    (call $log (local.get $obj))
-                    (unreachable)))
+              (unreachable))
 
           ;; Ignore objects which are marked
           (if (call $marked (local.get $obj))
@@ -1220,7 +1230,6 @@
        (local $sym i32)
        (local.set $p (global.get $oblist))
        (loop $loop
-          ;;;(call $log (local.get $p));;;;
           (if (i32.eqz (local.get $p))
               (return))
           (local.set $sym (call $car (local.get $p)))
@@ -1237,7 +1246,6 @@
        (local $p i32)
        (local $next i32)
        (local $alive i32)
-       (call $log (call $length (global.get $oblist)));;;
        (local.set $p (global.get $oblist))
        (global.set $oblist (i32.const 0))
        (loop $loop
@@ -1245,7 +1253,6 @@
               (then
                (global.set $oblist (call $nreverse (global.get $oblist)))
                (call $markObj (global.get $oblist))
-               (call $log (call $length (global.get $oblist)));;;
                (return)))
           (local.set $next (call $cdr (local.get $p)))
           (local.set $alive (call $marked (local.get $p)))
@@ -1265,12 +1272,9 @@
        (global.set $fp (global.get $fillp))
        (loop $loop
           (if (i32.ge_u (local.get $p) (global.get $fillp))
-              (then (call $log (global.get $num_unmark))
-                    (call $log (global.get $num_reclaim))
-                    (global.set
+              (then (global.set
                      $linear_mode
                      (i32.eq (global.get $fp) (global.get $fillp)))
-                    (call $log (i32.const 12341234))(call $log (global.get $linear_mode))
                     (return)))
           (if (call $marked (local.get $p))
               (then
@@ -1288,19 +1292,41 @@
           (br $loop)))
 
  (func $garbageCollect (result i32)
+       (call $printComment)
+       (call $printString (global.get $str_msg_gc1))  ;; gcing
+       (call $terprif)
+       (call $printComment)
+       (call $printString (global.get $str_msg_gc4))  ;; oblist
+       (call $printFixnum
+             (call $int2fixnum (call $length (global.get $oblist))))
+       (call $terprif)
+
        (global.set $num_mark (i32.const 0))
        (global.set $num_unmark (i32.const 0))
        (global.set $num_reclaim (i32.const 0))
-       (call $log (i32.const 80000000));;;;;;
 
        (call $markOblist)
        (call $markPrimitiveObj)
        (call $markStack)
-       (call $log (i32.const 80000001));;;;;;
        (call $reconstructOblist)
-       (call $log (global.get $num_mark))
-       (call $log (i32.const 80000002));;;;;;
+
+       (call $printComment)
+       (call $printString (global.get $str_msg_gc2))  ;; marked
+       (call $printFixnum (call $int2fixnum (global.get $num_mark)))
+       (call $terprif)
+
        (call $sweepHeap)
+
+       (call $printComment)
+       (call $printString (global.get $str_msg_gc3))  ;; reclaimed
+       (call $printFixnum (call $int2fixnum (global.get $num_reclaim)))
+       (call $terprif)
+       (call $printComment)
+       (call $printString (global.get $str_msg_gc4))  ;; oblist
+       (call $printFixnum
+             (call $int2fixnum (call $length (global.get $oblist))))
+       (call $terprif)
+
        (i32.const 0))
  ;;; END GARBAGE COLLECTOR
 
@@ -1613,6 +1639,10 @@
                                  (i32.eq (local.get $ret) (i32.const 0))
                                  (call $errorp (local.get $ret)))))))
  ;;; END EXPR/FEXPR
+
+ (func $fflush
+       (call $outputString (i32.const 40960))
+       (global.set $printp (i32.const 40960)))
 
  (func (export "init")
        (call $init)
