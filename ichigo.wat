@@ -137,6 +137,22 @@
  (global $str_reclaim i32 (i32.const 2230))
  (data (i32.const 2240) "PLUS\00")  ;; 5
  (global $str_plus i32 (i32.const 2240))
+ (data (i32.const 2250) "PROG\00")  ;; 5
+ (global $str_prog i32 (i32.const 2250))
+ (data (i32.const 2260) "PRINT\00")  ;; 6
+ (global $str_print i32 (i32.const 2260))
+ (data (i32.const 2270) "PRIN1\00")  ;; 6
+ (global $str_prin1 i32 (i32.const 2270))
+ (data (i32.const 2280) "TERPRI\00")  ;; 7
+ (global $str_terpri i32 (i32.const 2280))
+ (data (i32.const 2290) "GO\00")  ;; 3
+ (global $str_go i32 (i32.const 2290))
+ (data (i32.const 2300) "RETURN\00")  ;; 7
+ (global $str_return i32 (i32.const 2300))
+ (data (i32.const 2310) "SET\00")  ;; 4
+ (global $str_set i32 (i32.const 2310))
+ (data (i32.const 2320) "SETQ\00")  ;; 5
+ (global $str_setq i32 (i32.const 2320))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -165,7 +181,15 @@
  (global $sym_reclaim i32 (i32.const 0x0b8))
  (global $sym_plus_sign i32 (i32.const 0x0c0))
  (global $err_gc i32 (i32.const 0x0c8))
- (global $primitive_obj_end i32 (i32.const 0x0d0))
+ (global $sym_prog i32 (i32.const 0x0d0))
+ (global $sym_print i32 (i32.const 0x0d8))
+ (global $sym_prin1 i32 (i32.const 0x0e0))
+ (global $sym_terpri i32 (i32.const 0x0e8))
+ (global $sym_go i32 (i32.const 0x0f0))
+ (global $sym_return i32 (i32.const 0x0f8))
+ (global $sym_set i32 (i32.const 0x0100))
+ (global $sym_setq i32 (i32.const 0x0108))
+ (global $primitive_obj_end i32 (i32.const 0x110))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -190,6 +214,8 @@
  (global $str_msg_gc3 i32 (i32.const 5220))
  (data (i32.const 5240) "OBLIST: \00")  ;; 9
  (global $str_msg_gc4 i32 (i32.const 5240))
+ (data (i32.const 5250) "A6: NO LABEL\00")  ;; 13
+ (global $str_err_label i32 (i32.const 5250))
 
  (func $push (param $val i32)
        (i32.store (global.get $sp) (local.get $val))
@@ -265,6 +291,8 @@
        (i32.load (i32.add (local.get $cell) (i32.const 4))))
  (func $cadr (param $cell i32) (result i32)
        (call $car (call $cdr (local.get $cell))))
+ (func $cddr (param $cell i32) (result i32)
+       (call $cdr (call $cdr (local.get $cell))))
  (func $caddr (param $cell i32) (result i32)
        (call $car (call $cdr (call $cdr (local.get $cell)))))
 
@@ -558,6 +586,16 @@
           (br $loop))
        (i32.const 0))  ;; unreachable
 
+ (func $member (param $obj i32) (param $lst i32) (result i32)
+       (loop $loop
+          (if (i32.eqz (call $consp (local.get $lst)))
+              (return (i32.const 0)))
+          (if (i32.eq (call $car (local.get $lst)) (local.get $obj))
+              (return (local.get $lst)))
+          (local.set $lst (call $cdr (local.get $lst)))
+          (br $loop))
+       (i32.const 0))
+
  (func $simpleSymbolp (param $obj i32) (result i32)
        (if (i32.eqz (call $symbolp (local.get $obj)))
            (return (i32.const 0)))
@@ -727,6 +765,26 @@
  (func $embedStrError (param $obj i32) (param $str i32)
        (call $setcar (local.get $obj) (global.get $tag_error))
        (call $setcdr (local.get $obj) (call $int2fixnum (local.get $str))))
+
+ (global $ce_go i32 (i32.const 1))
+ (global $ce_return i32 (i32.const 2))
+ ;; Returns (err n . args)
+ (func $makeCatchableError (param $n i32) (param $args i32) (result i32)
+       (local $ret i32)
+       (local.set
+        $ret (call $cons (call $int2fixnum (local.get $n)) (local.get $args)))
+       (call $push (local.get $ret))  ;; For GC (ret)
+       (local.set $ret (call $cons (global.get $tag_error) (local.get $ret)))
+       (call $drop (call $pop))  ;; For GC ()
+       (local.get $ret))
+ (func $catchablep (param $obj i32) (param $n i32) (result i32)
+       (if (call $errorp (local.get $obj))
+           (if (call $consp (call $cdr (local.get $obj)))
+               (return (i32.eq (call $cadr (local.get $obj))
+                               (call $int2fixnum (local.get $n))))))
+       (i32.const 0))
+ (func $getCEValue (param $obj i32) (result i32)
+       (call $cddr (local.get $obj)))
 
  ;;; Skips spaces in `readp`.
  (func $isSpace (param $c i32) (result i32)
@@ -1418,7 +1476,17 @@
        (call $initsymSubr (global.get $sym_putprop) (global.get $str_putprop)
              (global.get $idx_putprop) (i32.const 3))
        (call $initsymSubr (global.get $sym_reclaim) (global.get $str_reclaim)
-             (global.get $idx_reclaim) (i32.const 3))
+             (global.get $idx_reclaim) (i32.const 0))
+       (call $initsymSubr (global.get $sym_print) (global.get $str_print)
+             (global.get $idx_print) (i32.const 1))
+       (call $initsymSubr (global.get $sym_prin1) (global.get $str_prin1)
+             (global.get $idx_prin1) (i32.const 1))
+       (call $initsymSubr (global.get $sym_terpri) (global.get $str_terpri)
+             (global.get $idx_terpri) (i32.const 0))
+       (call $initsymSubr (global.get $sym_return) (global.get $str_return)
+             (global.get $idx_return) (i32.const 1))
+       (call $initsymSubr (global.get $sym_set) (global.get $str_set)
+             (global.get $idx_set) (i32.const 2))
 
        (call $initsymKv
              (global.get $sym_list) (global.get $str_list)
@@ -1435,12 +1503,21 @@
        (call $initsymKv
              (global.get $sym_plus_sign) (global.get $str_plus_sign)
              (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_plus)))
+       (call $initsymKv
+             (global.get $sym_prog) (global.get $str_prog)
+             (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_prog)))
+       (call $initsymKv
+             (global.get $sym_go) (global.get $str_go)
+             (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_go)))
+       (call $initsymKv
+             (global.get $sym_setq) (global.get $str_setq)
+             (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_setq)))
 
        (call $embedStrError (global.get $err_gc) (global.get $str_err_gc))
        )
 
  ;;; SUBR/FSUBR
- ;;; SUBR stack: (..., arg1, arg2, arg3, restArgs)
+ ;;; SUBR stack: (..., a, arg1, arg2, arg3, restArgs)
  ;;; FSUBR stack: (..., e, a)  e is an expression like (QUOTE A)
  ;;; FSUBR stack after eval: (..., e, a, E)  E!=0: need to eval return value
 
@@ -1453,6 +1530,8 @@
       (i32.load (i32.sub (global.get $sp) (i32.const 8))))
  (func $getArg4 (result i32)
       (i32.load (i32.sub (global.get $sp) (i32.const 4))))
+ (func $getAArgInSubr (result i32)
+      (i32.load (i32.sub (global.get $sp) (i32.const 20))))
 
  ;;; Returns the arguments from FSUBR stack
  (func $getEArg (result i32)
@@ -1484,6 +1563,22 @@
  (global $idx_reclaim i32 (i32.const 110))
  (elem (i32.const 111) $fsubr_plus)
  (global $idx_plus i32 (i32.const 111))
+ (elem (i32.const 112) $fsubr_prog)
+ (global $idx_prog i32 (i32.const 112))
+ (elem (i32.const 113) $subr_print)
+ (global $idx_print i32 (i32.const 113))
+ (elem (i32.const 114) $subr_prin1)
+ (global $idx_prin1 i32 (i32.const 114))
+ (elem (i32.const 115) $subr_terpri)
+ (global $idx_terpri i32 (i32.const 115))
+ (elem (i32.const 116) $fsubr_go)
+ (global $idx_go i32 (i32.const 116))
+ (elem (i32.const 117) $subr_return)
+ (global $idx_return i32 (i32.const 117))
+ (elem (i32.const 118) $subr_set)
+ (global $idx_set i32 (i32.const 118))
+ (elem (i32.const 119) $fsubr_setq)
+ (global $idx_setq i32 (i32.const 119))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -1556,9 +1651,10 @@
             (return (local.get $tmp))))
        (if (i32.eqz (local.get $tmp))
            (local.set $ret
-                      (call $car (call $cdr (call $cdr (local.get $args)))))
+                      (call $safecar
+                            (call $safecdr (call $safecdr (local.get $args)))))
            (local.set $ret
-                      (call $car (call $cdr (local.get $args)))))
+                      (call $safecar (call $safecdr (local.get $args)))))
        (call $push (i32.const 1))  ;; *Need* to eval return value
        (local.get $ret))
  (func $fsubr_quote (result i32)
@@ -1613,6 +1709,123 @@
 
  (func $subr_reclaim (result i32)
        (call $garbageCollect))
+
+ (func $fsubr_prog (result i32)
+       (local $a i32)
+       (local $args i32)
+       (local $exps i32)
+       (local $exp i32)
+       (local $ret i32)
+       (local.set $a (call $getAArg))
+       (local.set $args (call $cdr (call $getEArg)))
+       (if (i32.ne (call $car (local.get $args)) (i32.const 0))
+            (local.set
+             $a
+             (call $pairlis (call $car (local.get $args)) (i32.const 0)
+                   (local.get $a))))
+       (call $push (local.get $a))  ;; For GC (a)
+       (local.set $exps (call $cdr (local.get $args)))
+       (local.set $ret (i32.const 0))
+       (block $block
+         (loop $loop
+            (br_if $block (i32.eqz (call $consp (local.get $exps))))
+            (local.set $exp (call $car (local.get $exps)))
+            (if (call $consp (local.get $exp))
+                (then
+                 (local.set $exp (call $eval (local.get $exp) (local.get $a)))
+                 ;; Handle RETURN
+                 (if (call $catchablep
+                           (local.get $exp) (global.get $ce_return))
+                     (then (local.set $ret (call $getCEValue (local.get $exp)))
+                           (br $block)))
+                 ;; Handle GO
+                 (if (call $catchablep
+                           (local.get $exp) (global.get $ce_go))
+                     (then
+                      ;; Search the label
+                      (local.set
+                       $exp (call $member
+                                  (call $getCEValue (local.get $exp))
+                                  (call $cdr (local.get $args))))
+                      ;; Label not found
+                      (if (i32.eqz (local.get $exp))
+                          (then
+                           (local.set
+                            $ret
+                            (call $makeStrError (global.get $str_err_label)))
+                           (br $block)))
+                      ;; Note: `exp` points to a list, so errorp returns 0
+                      (local.set $exps (local.get $exp))))
+                 (if (call $errorp (local.get $exp))
+                     (then (local.set $ret (local.get $exp))
+                           (br $block)))))
+            (local.set $exps (call $cdr (local.get $exps)))
+            (br $loop)))
+       (call $drop (call $pop))  ;; For GC ()
+       (call $push (i32.const 0))  ;; Don't need to eval return value
+       (local.get $ret))
+
+ (func $subr_print (result i32)
+       (local $arg1 i32)
+       (local.set $arg1 (call $getArg1))
+       (call $printObj (local.get $arg1))
+       (call $terprif)
+       (local.get $arg1))
+ (func $subr_prin1 (result i32)
+       (local $arg1 i32)
+       (local.set $arg1 (call $getArg1))
+       (call $printObj (local.get $arg1))
+       (call $fflush)
+       (local.get $arg1))
+ (func $subr_terpri (result i32)
+       (call $terprif)
+       (i32.const 0))
+
+ (func $fsubr_go (result i32)
+       (local $args i32)
+       (local.set $args (call $cdr (call $getEArg)))
+       (call $push (i32.const 0))  ;; Don't need to eval return value
+       (call $makeCatchableError
+             (global.get $ce_go) (call $car (local.get $args))))
+ (func $subr_return (result i32)
+       (local $arg1 i32)
+       (local.set $arg1 (call $getArg1))
+       (call $makeCatchableError (global.get $ce_return) (local.get $arg1)))
+
+ (func $subr_set (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local $a i32)
+       (local $p i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (local.set $a (call $getAArgInSubr))
+       (local.set $p (call $assoc (local.get $arg1) (local.get $a)))
+       (if (i32.eqz (local.get $p))
+           ;; TODO: Return the specific error
+           (return (call $makeStrError (global.get $str_err_generic))))
+       (call $setcdr (local.get $p) (local.get $arg2))
+       (local.get $arg2))
+ (func $fsubr_setq (result i32)
+       (local $args i32)
+       (local $a i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local $p i32)
+       (local.set $args (call $cdr (call $getEArg)))
+       (local.set $a (call $getAArg))
+       (local.set $arg1 (call $car (local.get $args)))
+       (local.set $arg2 (call $cadr (local.get $args)))
+       (local.set $arg2 (call $eval (local.get $arg2) (local.get $a)))
+       (local.set $p (call $assoc (local.get $arg1) (local.get $a)))
+       (if (i32.eqz (local.get $p))
+            ;;; Replace the return value
+            ;; TODO: Return the specific error
+           (local.set
+            $arg2 (call $makeStrError (global.get $str_err_generic)))
+           (call $setcdr (local.get $p) (local.get $arg2)))
+       (call $push (i32.const 0))  ;; Don't need to eval return value
+       (local.get $arg2))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR

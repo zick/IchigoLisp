@@ -153,6 +153,17 @@
           ["(define '((add-from-0-to-n (lambda(n)(if (eq n 0) 0 " +
            "(+ n (add-from-0-to-n (+ n -1)))))))))", "(ADD-FROM-0-TO-N)"],
           ["(add-from-0-to-n 10)", "55"],
+          ["(prog () 1 2 3)", "NIL"],
+          ["(prog () (list 1) (return 2) (list 3))", "2"],
+          ["(prog () (list 1) (list (return 2)) (list 3))", "2"],
+          ["(prog () (list 1) ((lambda(n) (return n)) 2) (list 3))", "2"],
+          ["(prog () (go l1) (return 1) l1 (return 2))", "2"],
+          ["(prog () (go l3) l1 (return 1) l2 (return 2) l3 (go l1))", "1"],
+          ["(prog (a b) (setq a 'b) (set a 99) (return (cons a b)))",
+           "(B . 99)"],
+          ["(prog (i acc) (setq i 1) (setq acc 0) " +
+           "l1 (if (eq i 11) (return acc)) " +
+           "(setq acc (+ acc i)) (setq i (+ i 1)) (go l1))", "55"],
 
           ["", /R4/],
           ["(", /R4/],
@@ -172,6 +183,8 @@
           ["(ub 2)", /A2/],
           ["((lambda(a)(a 1)) 'a)", /A2/],
           ["(car 'a)", /P1/],
+          ["(prog () (list 1) (list ub) (list 3))", /A8/],
+          ["(prog () (go label) (return 0))", /A6/],
       ];
       function runTest() {
           var num_pass = 0, num_fail = 0;
