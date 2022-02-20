@@ -86,6 +86,8 @@
 
  (global $oblist (mut i32) (i32.const 0))
 
+ (global $trace_level (mut i32) (i32.const 0))
+
  ;;; Symbol strings [2000 - 4095]
  (data (i32.const 2000) "NIL\00")  ;; 4
  (global $str_nil i32 (i32.const 2000))
@@ -205,6 +207,16 @@
  (global $str_function i32 (i32.const 2580))
  (data (i32.const 2590) "LABEL\00")  ;; 6
  (global $str_label i32 (i32.const 2590))
+ (data (i32.const 2600) "NULL\00")  ;; 5
+ (global $str_null i32 (i32.const 2600))
+ (data (i32.const 2610) "RPLACA\00")  ;; 7
+ (global $str_rplaca i32 (i32.const 2610))
+ (data (i32.const 2620) "RPLACD\00")  ;; 7
+ (global $str_rplacd i32 (i32.const 2620))
+ (data (i32.const 2630) "TRACE\00")  ;; 6
+ (global $str_trace i32 (i32.const 2630))
+ (data (i32.const 2640) "GET\00")  ;; 4
+ (global $str_get i32 (i32.const 2640))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -267,7 +279,12 @@
  (global $sym_funarg i32 (i32.const 0x01c8))
  (global $sym_function i32 (i32.const 0x01d0))
  (global $sym_label i32 (i32.const 0x01d8))
- (global $primitive_obj_end i32 (i32.const 0x1e0))
+ (global $sym_null i32 (i32.const 0x01e0))
+ (global $sym_rplaca i32 (i32.const 0x01e8))
+ (global $sym_rplacd i32 (i32.const 0x01f0))
+ (global $sym_trace i32 (i32.const 0x01f8))
+ (global $sym_get i32 (i32.const 0x0200))
+ (global $primitive_obj_end i32 (i32.const 0x0208))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -296,6 +313,10 @@
  (global $str_err_label i32 (i32.const 5250))
  (data (i32.const 5270) "I3: NOT NUMVAL\00")  ;; 15
  (global $str_err_num i32 (i32.const 5270))
+ (data (i32.const 5290) "ENTER\00")  ;; 6
+ (global $str_msg_trace_enter i32 (i32.const 5290))
+ (data (i32.const 5300) "EXIT\00")  ;; 5
+ (global $str_msg_trace_exit i32 (i32.const 5300))
 
  (func $push (param $val i32)
        (i32.store (global.get $sp) (local.get $val))
@@ -526,6 +547,9 @@
        (i32.store8 (global.get $printp) (local.get $c))
        (global.set $printp (i32.add (global.get $printp) (i32.const 1)))
        (i32.store8 (global.get $printp) (i32.const 0)))
+
+ (func $printSpace
+       (call $printChar (i32.const 32)))  ;; ' '
 
  (func $printComment
        (call $printChar (i32.const 59))  ;; ';'
@@ -1149,9 +1173,11 @@
   (local $ret i32)
   (local $tmp i32)
   (local $fn_lookup i32)
+  (local $tracing i32)
   (local $fn i32)
   (local $args i32)
   (local.set $ret (i32.const 0))
+  (local.set $tracing (i32.const 0))
   (call $log (i32.const 11111));;;;;
   (call $log (global.get $sp));;;;;
   (call $push (local.get $e))  ;; For GC (e)
@@ -1235,11 +1261,14 @@
                      (call $fixnum2int (call $car (local.get $tmp))))))
                (call $evpop)
                (br $evalbk)))
-          ;; Check if fn is SUBR
+          ;; Check if fn is EXPR
           (local.set $tmp
                      (call $get (local.get $fn) (global.get $sym_expr)))
           (if (i32.ne (local.get $tmp) (i32.const 0))
-              (local.set $fn (local.get $tmp)))
+              (then
+               (if (call $get (local.get $fn) (global.get $sym_trace))
+                    (local.set $tracing (local.get $fn)))
+               (local.set $fn (local.get $tmp))))
           ;; Don't lookup fn from alist twice (to avoid infinite loop)
           (if (i32.and (call $symbolp (local.get $fn))
                        (i32.ne (local.get $fn_lookup) (i32.const 0)))
@@ -1263,6 +1292,19 @@
        ;; Note that $args is not protected from GC
        (call $log (i32.const 10000006));;;;;
        (local.set $args (call $evlis (local.get $args) (local.get $a)))
+       (if (i32.ne (local.get $tracing) (i32.const 0))
+           (then
+            (global.set
+             $trace_level (i32.add (global.get $trace_level) (i32.const 1)))
+            (call $printComment)
+            (call $printObj (call $int2fixnum (global.get $trace_level)))
+            (call $printSpace)
+            (call $printString (global.get $str_msg_trace_enter))
+            (call $printSpace)
+            (call $printObj (local.get $tracing))
+            (call $printSpace)
+            (call $printObj (local.get $args))
+            (call $terprif)))
        (block $applybk
          (loop $applylp
             ;; fn shouldn't be an atom (we check whether fn is a symbol above)
@@ -1287,6 +1329,24 @@
                             (local.get $e))  ;; replace `e` in stack
                  (i32.store (i32.sub (global.get $sp) (i32.const 4))
                             (local.get $a))  ;; replace `a` in stack
+                 (if (i32.ne (local.get $tracing) (i32.const 0))
+                     (then
+                      (local.set
+                       $ret (call $eval (local.get $e) (local.get $a)))
+                      (call $printComment)
+                      (call $printObj
+                            (call $int2fixnum (global.get $trace_level)))
+                      (call $printSpace)
+                      (call $printString (global.get $str_msg_trace_exit))
+                      (call $printSpace)
+                      (call $printObj (local.get $tracing))
+                      (call $printChar (i32.const 61))  ;; '='
+                      (call $printObj (local.get $ret))
+                      (call $terprif)
+                      (global.set
+                       $trace_level
+                       (i32.sub (global.get $trace_level) (i32.const 1)))
+                      (br $evalbk)))
                  (br $evallp)))
             (if (i32.eq (call $car (local.get $fn)) (global.get $sym_funarg))
                 (then
@@ -1348,13 +1408,20 @@
               (return))
           ;; So far "other" pointers don't exist
           (if (call $otherp (local.get $obj))
-              (unreachable))
+              (then
+               (call $log (i32.const 777001))
+               (unreachable)))
           ;; The obj must points to a double word cell
           (if (i32.eqz (call $dwcellp (local.get $obj)))
-              (unreachable))
+              (then
+               (call $log (i32.const 777002))
+               (unreachable)))
           ;; The obj must not point to beyond heap_end
           (if (i32.ge_u (local.get $obj) (global.get $heap_end))
-              (unreachable))
+              (then
+               (call $log (i32.const 777003))
+               (call $log (local.get $obj))
+               (unreachable)))
 
           ;; Ignore objects which are marked
           (if (call $marked (local.get $obj))
@@ -1386,6 +1453,7 @@
        (local $p i32)
        (local.set $p (i32.const 0))
        (loop $loop
+          (call $log (local.get $p));;;
           (if (i32.eq (local.get $p) (global.get $primitive_obj_end))
               (return))
           (call $markObj (local.get $p))
@@ -1559,6 +1627,7 @@
        (call $initsym0 (global.get $sym_fexpr) (global.get $str_fexpr))
        (call $initsym0 (global.get $sym_lambda) (global.get $str_lambda))
        (call $initsym0 (global.get $sym_funarg) (global.get $str_funarg))
+       (call $initsym0 (global.get $sym_trace) (global.get $str_trace))
        (call $initsym1
              (global.get $sym_nil) (global.get $str_nil) (i32.const 0))
        (call $initsym1
@@ -1643,6 +1712,14 @@
              (global.get $idx_minusp) (i32.const 1))
        (call $initsymSubr (global.get $sym_numberp) (global.get $str_numberp)
              (global.get $idx_numberp) (i32.const 1))
+       (call $initsymSubr (global.get $sym_null) (global.get $str_null)
+             (global.get $idx_null) (i32.const 1))
+       (call $initsymSubr (global.get $sym_rplaca) (global.get $str_rplaca)
+             (global.get $idx_rplaca) (i32.const 2))
+       (call $initsymSubr (global.get $sym_rplacd) (global.get $str_rplacd)
+             (global.get $idx_rplacd) (i32.const 2))
+       (call $initsymSubr (global.get $sym_get) (global.get $str_get)
+             (global.get $idx_get) (i32.const 2))
 
        (call $initsymKv
              (global.get $sym_list) (global.get $str_list)
@@ -1792,6 +1869,14 @@
  (global $idx_function i32 (i32.const 136))
  (elem (i32.const 137) $fsubr_label)
  (global $idx_label i32 (i32.const 137))
+ (elem (i32.const 138) $subr_null)
+ (global $idx_null i32 (i32.const 138))
+ (elem (i32.const 139) $subr_rplaca)
+ (global $idx_rplaca i32 (i32.const 139))
+ (elem (i32.const 140) $subr_rplacd)
+ (global $idx_rplacd i32 (i32.const 140))
+ (elem (i32.const 141) $subr_get)
+ (global $idx_get i32 (i32.const 141))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -2263,6 +2348,39 @@
        (call $drop (call $pop))  ;; For GC ()
        (call $push (i32.const 0))  ;; Don't need to eval return value
        (local.get $ret))
+
+ (func $subr_null (result i32)
+       (local $arg1 i32)
+       (local.set $arg1 (call $getArg1))
+       (if (i32.eqz (local.get $arg1))
+           (return (global.get $sym_tstar)))
+       (i32.const 0))
+
+ (func $subr_rplaca (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (if (i32.eqz (call $dwcellp (local.get $arg1)))
+           (return (call $makeStrError (global.get $str_err_generic))))
+       (call $setcar (local.get $arg1) (local.get $arg2))
+       (local.get $arg2))
+ (func $subr_rplacd (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (if (i32.eqz (call $dwcellp (local.get $arg1)))
+           (return (call $makeStrError (global.get $str_err_generic))))
+       (call $setcdr (local.get $arg1) (local.get $arg2))
+       (local.get $arg2))
+
+ (func $subr_get (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (call $get (local.get $arg1) (local.get $arg2)))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR
@@ -2274,6 +2392,17 @@
   "(CONS (PUTPROP (CAR (CAR L)) (CAR (CDR (CAR L))) 'EXPR) (DEFINE (CDR L))) "
   "L)) "
   "'EXPR) "
+  "(DEFINE '( "
+  " (FLAG (LAMBDA (L IND) (PROG () L1 (IF (NULL L) (RETURN NIL)) "
+  "  (RPLACD (CAR L) (CONS IND (CDR (CAR L)))) (SETQ L (CDR L)) (GO L1)))) "
+  " (REMFLAG (LAMBDA (L IND) (IF (NULL L) NIL "
+  "  (PROG () (PROG (S) (SETQ S (CAR L)) "
+  "  L1 (IF (NULL (CDR S)) (RETURN NIL)) "
+  "  (IF (EQ (CAR (CDR S)) IND) (RETURN (RPLACD S (CDR (CDR S))))) "
+  "  (SETQ S (CDR S)) (GO L1)) (REMFLAG (CDR L) IND))))) "
+  " (TRACE (LAMBDA (X) (FLAG X 'TRACE)))"
+  " (UNTRACE (LAMBDA (X) (REMFLAG X 'TRACE)))"
+  "))"
   "NIL "  ;; END OF EXPR
   "\00")
 
