@@ -197,6 +197,14 @@
  (global $str_minusp i32 (i32.const 2540))
  (data (i32.const 2550) "NUMBERP\00")  ;; 8
  (global $str_numberp i32 (i32.const 2550))
+ (data (i32.const 2560) "COND\00")  ;; 5
+ (global $str_cond i32 (i32.const 2560))
+ (data (i32.const 2570) "FUNARG\00")  ;; 7
+ (global $str_funarg i32 (i32.const 2570))
+ (data (i32.const 2580) "FUNCTION\00")  ;; 9
+ (global $str_function i32 (i32.const 2580))
+ (data (i32.const 2590) "LABEL\00")  ;; 6
+ (global $str_label i32 (i32.const 2590))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -255,7 +263,11 @@
  (global $sym_onep i32 (i32.const 0x01a8))
  (global $sym_minusp i32 (i32.const 0x01b0))
  (global $sym_numberp i32 (i32.const 0x01b8))
- (global $primitive_obj_end i32 (i32.const 0x1c0))
+ (global $sym_cond i32 (i32.const 0x01c0))
+ (global $sym_funarg i32 (i32.const 0x01c8))
+ (global $sym_function i32 (i32.const 0x01d0))
+ (global $sym_label i32 (i32.const 0x01d8))
+ (global $primitive_obj_end i32 (i32.const 0x1e0))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -578,7 +590,7 @@
        (loop $loop
           (if (i32.eq (call $car (local.get $obj)) (local.get $key))
               (return (call $cdr (local.get $obj))))
-          (local.set $obj (call $cdr (call $cdr (local.get $obj))))
+          (local.set $obj (call $cdr (local.get $obj)))
           (br_if $loop (i32.ne (local.get $obj) (i32.const 0))))
        (i32.const 0))
 
@@ -667,6 +679,14 @@
  (func $list2 (param $e1 i32) (param $e2 i32) (result i32)
        (local $tmp i32)
        (local.set $tmp (call $cons (local.get $e2) (i32.const 0)))
+       (call $push (local.get $tmp))  ;; For GC (tmp)
+       (local.set $tmp (call $cons (local.get $e1) (local.get $tmp)))
+       (call $drop (call $pop))  ;; For GC ()
+       (local.get $tmp))
+
+ (func $list3 (param $e1 i32) (param $e2 i32) (param $e3 i32) (result i32)
+       (local $tmp i32)
+       (local.set $tmp (call $list2 (local.get $e2) (local.get $e3)))
        (call $push (local.get $tmp))  ;; For GC (tmp)
        (local.set $tmp (call $cons (local.get $e1) (local.get $tmp)))
        (call $drop (call $pop))  ;; For GC ()
@@ -1268,11 +1288,24 @@
                  (i32.store (i32.sub (global.get $sp) (i32.const 4))
                             (local.get $a))  ;; replace `a` in stack
                  (br $evallp)))
-            ;; Unknown function
-            (local.set
-             $ret
-             ;; TODO: Return a specific error
-             (call $makeStrError (global.get $str_err_generic)))
+            (if (i32.eq (call $car (local.get $fn)) (global.get $sym_funarg))
+                (then
+                 ;; Replace `a` with the closure env
+                 (local.set $a (call $caddr (local.get $fn)))
+                 (i32.store (i32.sub (global.get $sp) (i32.const 4))
+                            (local.get $a))  ;; replace `a` in stack
+                 ;; The new fn should be (LAMBDA ...)
+                 (local.set $fn (call $cadr (local.get $fn)))
+                 (br $applylp)))
+            ;; FUNCTION, LABEL, or a function that returns a function
+            (call $push (local.get $args))  ;; For GC (e, a, args)
+            (local.set $tmp (call $eval (local.get $fn) (local.get $a)))
+            (call $drop (call $pop))  ;; For GC (e, a)
+            (if (call $errorp (local.get $tmp))
+                (then (local.set $ret (local.get $tmp))
+                      (br $evalbk)))
+            (local.set $fn (local.get $tmp))
+            (br $applylp)
             ))  ;; applybk
        ))  ;; evalbk
   (call $drop (call $pop))  ;; For GC (e)
@@ -1525,6 +1558,7 @@
        (call $initsym0 (global.get $sym_expr) (global.get $str_expr))
        (call $initsym0 (global.get $sym_fexpr) (global.get $str_fexpr))
        (call $initsym0 (global.get $sym_lambda) (global.get $str_lambda))
+       (call $initsym0 (global.get $sym_funarg) (global.get $str_funarg))
        (call $initsym1
              (global.get $sym_nil) (global.get $str_nil) (i32.const 0))
        (call $initsym1
@@ -1643,6 +1677,18 @@
              (global.get $sym_times) (global.get $str_times)
              (global.get $sym_fsubr)
              (call $int2fixnum (global.get $idx_times)))
+       (call $initsymKv
+             (global.get $sym_cond) (global.get $str_cond)
+             (global.get $sym_fsubr)
+             (call $int2fixnum (global.get $idx_cond)))
+       (call $initsymKv
+             (global.get $sym_function) (global.get $str_function)
+             (global.get $sym_fsubr)
+             (call $int2fixnum (global.get $idx_function)))
+       (call $initsymKv
+             (global.get $sym_label) (global.get $str_label)
+             (global.get $sym_fsubr)
+             (call $int2fixnum (global.get $idx_label)))
 
        (call $embedStrError (global.get $err_gc) (global.get $str_err_gc))
        )
@@ -1740,6 +1786,12 @@
  (global $idx_minusp i32 (i32.const 133))
  (elem (i32.const 134) $subr_numberp)
  (global $idx_numberp i32 (i32.const 134))
+ (elem (i32.const 135) $fsubr_cond)
+ (global $idx_cond i32 (i32.const 135))
+ (elem (i32.const 136) $fsubr_function)
+ (global $idx_function i32 (i32.const 136))
+ (elem (i32.const 137) $fsubr_label)
+ (global $idx_label i32 (i32.const 137))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -2147,6 +2199,70 @@
        (if (call $numberp (local.get $arg1))
            (return (global.get $sym_tstar)))
        (i32.const 0))
+
+ (func $fsubr_cond (result i32)
+       (local $a i32)
+       (local $args i32)
+       (local $ret i32)
+       (local $tmp i32)
+       (local.set $a (call $getAArg))
+       (local.set $args (call $cdr (call $getEArg)))
+       (local.set $ret (i32.const 0))
+       (block $block
+         (loop $loop
+            (br_if $block (i32.eqz (call $consp (local.get $args))))
+            (local.set
+             $tmp
+             (call $eval (call $safecar (call $safecar (local.get $args)))
+                   (local.get $a)))
+            (if (call $errorp (local.get $tmp))
+                (then
+                 (local.set $ret (local.get $tmp))
+                 (br $block)))
+            (if (i32.ne (local.get $tmp) (i32.const 0))
+                (then
+                 (local.set
+                  $ret
+                  (call $safecar
+                        (call $safecdr (call $safecar (local.get $args)))))
+                 (br $block)))
+            (local.set $args (call $cdr (local.get $args)))
+            (br $loop)))
+       (call $push (i32.const 1))  ;; *Need* to eval return value
+       (local.get $ret))
+
+ (func $fsubr_function (result i32)
+       (local $a i32)
+       (local $args i32)
+       (local.set $a (call $getAArg))
+       (local.set $args (call $cdr (call $getEArg)))
+       (call $push (i32.const 0))  ;; Don't need to eval return value
+       (call $list3 (global.get $sym_funarg) (call $car (local.get $args))
+             (local.get $a)))
+
+ (func $fsubr_label (result i32)
+       (local $a i32)
+       (local $args i32)
+       (local $tmp i32)
+       (local $ret i32)
+       (local.set $a (call $getAArg))
+       (local.set $args (call $cdr (call $getEArg)))
+       ;; Push (name . fun) pair to `a`
+       (local.set $tmp (call $cons
+                             (call $car (local.get $args))
+                             (call $cadr (local.get $args))))
+       (call $push (local.get $tmp))  ;; For GC (tmp)
+       (local.set $tmp (call $cons (local.get $tmp) (local.get $a)))
+       (call $drop (call $pop))  ;; For GC ()
+       (call $push (local.get $tmp))  ;; For GC (tmp)
+       ;; Create (FUNARG fun ((name . fun) . a))
+       (local.set
+        $ret
+        (call $list3 (global.get $sym_funarg) (call $cadr (local.get $args))
+              (local.get $tmp)))
+       (call $drop (call $pop))  ;; For GC ()
+       (call $push (i32.const 0))  ;; Don't need to eval return value
+       (local.get $ret))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR

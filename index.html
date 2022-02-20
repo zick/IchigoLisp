@@ -195,6 +195,14 @@
           ["(minusp -1)", "*T*"],
           ["(numberp -2)", "*T*"],
           ["(numberp 'number)", "NIL"],
+          ["(cond)", "NIL"],
+          ["(cond ((< 2 1) 0) ((> 3 2) (* 4 5)) (t 10))", "20"],
+          ["((label f (lambda (x) (if (zerop x) 1 (* x (f (1- x)))))) 10)",
+           "3628800"],
+          ["(((lambda(x)(function(lambda(y)(cons x y)))) 1) 2)", "(1 . 2)"],
+          ["(define '((call(lambda(f x)(f x)))))", "(CALL)"],
+          ["((lambda(x)(call(quote(lambda(y)(cons x y)))2))1)", "(2 . 2)"],
+          ["((lambda(x)(call(function(lambda(y)(cons x y)))2))1)", "(1 . 2)"],
 
           ["", /R4/],
           ["(", /R4/],
@@ -219,6 +227,8 @@
           ["(prog2 ub 2)", /A8/],
           ["(+ 1 'one)", /I3/],
           ["(- 1 'one)", /I3/],
+          ["(cond ((< 2 1) 0) ((> 3 2) (list ub)) (t 10))", /A8/],
+          ["(cond ((< 2 1) 0) ((> 3 'a) (* 4 5)) (t 10))", /I3/],
       ];
       function runTest() {
           var num_pass = 0, num_fail = 0;
