@@ -217,6 +217,10 @@
  (global $str_trace i32 (i32.const 2630))
  (data (i32.const 2640) "GET\00")  ;; 4
  (global $str_get i32 (i32.const 2640))
+ (data (i32.const 2650) "EVAL\00")  ;; 5
+ (global $str_eval i32 (i32.const 2650))
+ (data (i32.const 2660) "APPLY\00")  ;; 6
+ (global $str_apply i32 (i32.const 2660))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -284,7 +288,9 @@
  (global $sym_rplacd i32 (i32.const 0x01f0))
  (global $sym_trace i32 (i32.const 0x01f8))
  (global $sym_get i32 (i32.const 0x0200))
- (global $primitive_obj_end i32 (i32.const 0x0208))
+ (global $sym_eval i32 (i32.const 0x0208))
+ (global $sym_apply i32 (i32.const 0x0210))
+ (global $primitive_obj_end i32 (i32.const 0x0218))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -1146,6 +1152,15 @@
             (call $push (local.get $tmp))))
        (local.get $ret))
 
+;;; Pushes 4 elements without evaluation
+ (func $argspush (param $lst i32)
+       (call $push (call $safecar (local.get $lst)))  ;; 1st
+       (local.set $lst (call $safecdr (local.get $lst)))
+       (call $push (call $safecar (local.get $lst)))  ;; 2nd
+       (local.set $lst (call $safecdr (local.get $lst)))
+       (call $push (call $safecar (local.get $lst)))  ;; 3rd
+       (call $push (call $safecdr (local.get $lst))))  ;; rest
+
  (func $evpop
        (global.set $sp (i32.sub (global.get $sp) (i32.const 16))))
 
@@ -1173,7 +1188,8 @@
   (local $ret i32)
   (local $tmp i32)
   (local $fn_lookup i32)
-  (local $tracing i32)
+  (local $tracing i32)  ;; contains a symbol when tracing
+  (local $applying i32)  ;; whether a SUBR APPLY is called
   (local $fn i32)
   (local $args i32)
   (local.set $ret (i32.const 0))
@@ -1226,6 +1242,7 @@
        (local.set $fn (call $car (local.get $e)))
        (local.set $args (call $cdr (local.get $e)))
        (local.set $fn_lookup (i32.const 0))
+       (local.set $applying (i32.const 0))
        (loop $complp
           ;; Check if fn is FSUBR
           (local.set $tmp
@@ -1249,9 +1266,53 @@
           ;; Check if fn is SUBR
           (local.set $tmp
                      (call $get (local.get $fn) (global.get $sym_subr)))
+          ;; Special handling for EVAL
+          (if (i32.eq (call $car (local.get $tmp))
+                      (call $int2fixnum (global.get $idx_eval)))
+              (then
+               (if (i32.eqz (local.get $applying))
+                   (local.set
+                    $e (call $evlis (local.get $args) (local.get $a))))
+               (local.set $a (call $safecar (call $cdr (local.get $e))))
+               (local.set $e (call $car (local.get $e)))
+               (i32.store (i32.sub (global.get $sp) (i32.const 4))
+                          (local.get $a))  ;; replace `a` in stack
+               (i32.store (i32.sub (global.get $sp) (i32.const 8))
+                          (local.get $e))  ;; replace `e` in stack
+               (br $evallp)))
+          ;; Special handling for APPLY
+          (if (i32.eq (call $car (local.get $tmp))
+                      (call $int2fixnum (global.get $idx_apply)))
+              (then
+               (if (i32.eqz (local.get $applying))
+                   (then
+                    (local.set
+                     $e (call $evlis (local.get $args) (local.get $a)))
+                    (if (call $errorp (local.get $e))
+                        (then (local.set $ret (local.get $e))
+                              (br $evalbk)))
+                    (local.set $a (call $safecar (call $cddr (local.get $e))))
+                    (i32.store (i32.sub (global.get $sp) (i32.const 4))
+                               (local.get $a))  ;; replace `a` in stack
+                    ;; Set `e` like (fn . args) from (fn args env)
+                    (call $setcdr (local.get $e) (call $cadr (local.get $e)))
+                    (i32.store (i32.sub (global.get $sp) (i32.const 8))
+                               (local.get $e))  ;; replace `e` in stack
+                    ;; Set `applying` not to evaluate args again
+                    (local.set $applying (i32.const 1))
+                    (local.set $fn (call $car (local.get $e)))
+                    (local.set $args (call $cdr (local.get $e))))
+                   (else
+                    (local.set $fn (call $car (local.get $args)))
+                    (local.set $args (call $cadr (local.get $args)))))
+               (br $complp)))
+          ;; Normal SUBR
           (if (i32.ne (local.get $tmp) (i32.const 0))
               (then
-               (local.set $ret (call $evpush (local.get $args) (local.get $a)))
+               (if (i32.eqz (local.get $applying))
+                   (local.set
+                    $ret (call $evpush (local.get $args) (local.get $a)))
+                   (call $argspush (local.get $args)))
                ;; Call the SUBR only if the arguments don't contain errors.
                (if (i32.eqz (local.get $ret))
                    (local.set
@@ -1291,7 +1352,8 @@
           )  ;; complp
        ;; Note that $args is not protected from GC
        (call $log (i32.const 10000006));;;;;
-       (local.set $args (call $evlis (local.get $args) (local.get $a)))
+       (if (i32.eqz (local.get $applying))
+           (local.set $args (call $evlis (local.get $args) (local.get $a))))
        (if (i32.ne (local.get $tracing) (i32.const 0))
            (then
             (global.set
@@ -1720,6 +1782,10 @@
              (global.get $idx_rplacd) (i32.const 2))
        (call $initsymSubr (global.get $sym_get) (global.get $str_get)
              (global.get $idx_get) (i32.const 2))
+       (call $initsymSubr (global.get $sym_eval) (global.get $str_eval)
+             (global.get $idx_eval) (i32.const 2))
+       (call $initsymSubr (global.get $sym_apply) (global.get $str_apply)
+             (global.get $idx_apply) (i32.const 3))
 
        (call $initsymKv
              (global.get $sym_list) (global.get $str_list)
@@ -1877,6 +1943,10 @@
  (global $idx_rplacd i32 (i32.const 140))
  (elem (i32.const 141) $subr_get)
  (global $idx_get i32 (i32.const 141))
+ (elem (i32.const 142) $subr_eval)
+ (global $idx_eval i32 (i32.const 142))
+ (elem (i32.const 143) $subr_apply)
+ (global $idx_apply i32 (i32.const 143))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -2381,6 +2451,14 @@
        (local.set $arg1 (call $getArg1))
        (local.set $arg2 (call $getArg2))
        (call $get (local.get $arg1) (local.get $arg2)))
+
+ ;;; EVAL and APPLY shouldn't called. Actual code is embedded in $eval.
+ (func $subr_eval (result i32)
+       (unreachable)
+       (i32.const 0))
+ (func $subr_apply (result i32)
+       (unreachable)
+       (i32.const 0))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR

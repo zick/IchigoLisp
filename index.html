@@ -219,6 +219,13 @@
           ["(null (get 'a 'trace))", "NIL"],
           ["(untrace '(a))", "NIL"],
           ["(null (get 'a 'trace))", "*T*"],
+          ["(eval '(car '(a b c)) nil)", "A"],
+          ["(eval '(+ 1 2) '((a . 1) (b . 2)))", "3"],
+          ["(apply 'cons '(a b) nil)", "(A . B)"],
+          ["(apply 'apply '(cons (a b)) nil)", "(A . B)"],
+          ["(apply '+ '(1 2) nil)", "3"],
+          ["(apply 'add-from-0-to-n '(5) nil)", "15"],
+          ["(apply '(lambda(x)(+ x y)) '(1) '((y . 2)))", "3"],
 
           ["", /R4/],
           ["(", /R4/],
@@ -245,6 +252,7 @@
           ["(- 1 'one)", /I3/],
           ["(cond ((< 2 1) 0) ((> 3 2) (list ub)) (t 10))", /A8/],
           ["(cond ((< 2 1) 0) ((> 3 'a) (* 4 5)) (t 10))", /I3/],
+          ["(eval 'ub)", /A8/],
       ];
       function runTest() {
           var num_pass = 0, num_fail = 0;
