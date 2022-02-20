@@ -1322,6 +1322,21 @@
                      (call $fixnum2int (call $car (local.get $tmp))))))
                (call $evpop)
                (br $evalbk)))
+          ;; Check if fn is FEXPR
+          (local.set $tmp
+                     (call $get (local.get $fn) (global.get $sym_fexpr)))
+          (if (i32.ne (local.get $tmp) (i32.const 0))
+              (then
+               (local.set $args (call $list2 (local.get $args) (local.get $a)))
+               ;; HACK: replace `a` in stack with (args a) for GC.
+               ;; It's a bit scary but safe because FSUBR (which uses `a` in
+               ;; stack) isn't directly called in this case.
+               (i32.store (i32.sub (global.get $sp) (i32.const 4))
+                          (local.get $args))  ;; replace `a` in stack
+               ;; Disable argument evaluation.
+               (local.set $applying (i32.const 1))
+               ;; The new fn should be (LAMBDA ...).
+               (local.set $fn (local.get $tmp))))
           ;; Check if fn is EXPR
           (local.set $tmp
                      (call $get (local.get $fn) (global.get $sym_expr)))
@@ -2465,11 +2480,12 @@
  (global $str_expr_defs i32 (i32.const 196608))
  (data
   (i32.const 196608)  ;; 64KB * 3
-  "(PUTPROP 'DEFINE '(LAMBDA (L) "
+  "(PUTPROP 'DEFLIST '(LAMBDA (L IND) "
   "(IF L "
-  "(CONS (PUTPROP (CAR (CAR L)) (CAR (CDR (CAR L))) 'EXPR) (DEFINE (CDR L))) "
+  "(CONS (PUTPROP (CAR (CAR L)) (CAR (CDR (CAR L))) IND) (DEFINE (CDR L))) "
   "L)) "
   "'EXPR) "
+  "(DEFLIST '((DEFINE (LAMBDA (L) (DEFLIST L 'EXPR)))) 'EXPR) "
   "(DEFINE '( "
   " (FLAG (LAMBDA (L IND) (PROG () L1 (IF (NULL L) (RETURN NIL)) "
   "  (RPLACD (CAR L) (CONS IND (CDR (CAR L)))) (SETQ L (CDR L)) (GO L1)))) "

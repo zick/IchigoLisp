@@ -226,6 +226,9 @@
           ["(apply '+ '(1 2) nil)", "3"],
           ["(apply 'add-from-0-to-n '(5) nil)", "15"],
           ["(apply '(lambda(x)(+ x y)) '(1) '((y . 2)))", "3"],
+          ["(deflist '((consq (lambda (args a) (cons (car args) " +
+           "(eval (car (cdr args)) a))))) 'fexpr)", "(CONSQ)"],
+          ["(consq (+ 1 2) (+ 3 4)))", "((+ 1 2) . 7)"],
 
           ["", /R4/],
           ["(", /R4/],
