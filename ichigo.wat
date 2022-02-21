@@ -221,6 +221,12 @@
  (global $str_eval i32 (i32.const 2650))
  (data (i32.const 2660) "APPLY\00")  ;; 6
  (global $str_apply i32 (i32.const 2660))
+ (data (i32.const 2670) "OBLIST\00")  ;; 7
+ (global $str_oblist i32 (i32.const 2670))
+ (data (i32.const 2680) "CHARCOUNT\00")  ;; 10
+ (global $str_charcount i32 (i32.const 2680))
+ (data (i32.const 2690) "CURCHAR\00")  ;; 10
+ (global $str_curchar i32 (i32.const 2690))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -290,7 +296,11 @@
  (global $sym_get i32 (i32.const 0x0200))
  (global $sym_eval i32 (i32.const 0x0208))
  (global $sym_apply i32 (i32.const 0x0210))
- (global $primitive_obj_end i32 (i32.const 0x0218))
+ (global $sym_oblist i32 (i32.const 0x0218))
+ (global $sym_charcount i32 (i32.const 0x0220))
+ (global $sym_curchar i32 (i32.const 0x0228))
+ (global $oblist_cell i32 (i32.const 0x0230))
+ (global $primitive_obj_end i32 (i32.const 0x0238))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -912,7 +922,23 @@
  (func $getCEValue (param $obj i32) (result i32)
        (call $cddr (local.get $obj)))
 
- ;;; Skips spaces in `readp`.
+ ;;; Increments `readp` by `n`.
+ (func $rdseek (param $n i32)
+       (global.set $readp (i32.add (global.get $readp) (local.get $n))))
+ ;;; Returns the N th character from `readp`.
+ (func $peekCharN (param $n i32) (result i32)
+       (i32.load8_u (i32.add (global.get $readp) (local.get $n))))
+ ;;; Returns the first character from `readp`.
+ (func $peekChar (result i32)
+       (call $peekCharN (i32.const 0)))
+ ;;; Returns the first character from `readp` and increment `readp`.
+ (func $readChar (result i32)
+       (local $c i32)
+       (local.set $c (call $peekChar))
+       (if (i32.ne (local.get $c) (i32.const 0))
+           (call $rdseek (i32.const 1)))
+       (local.get $c))
+
  (func $isSpace (param $c i32) (result i32)
        (local $ret i32)
        (local.set $ret (i32.const 0))
@@ -939,15 +965,16 @@
            (local.set $ret (i32.const 1)))
        (local.get $ret))
 
+ ;;; Skips spaces in `readp`.
  (func $skipSpaces
        (local $c i32)
        (loop $loop
-          (local.set $c (i32.load8_u (global.get $readp)))
+          (local.set $c (call $peekChar))
           (if (i32.eqz (local.get $c))
               (return))
           (if (call $isSpace (local.get $c))
               (then
-               (global.set $readp (i32.add (global.get $readp) (i32.const 1)))
+               (call $rdseek (i32.const 1))
                (br $loop)))))
 
  (func $toUpper (param $c i32) (result i32)
@@ -961,18 +988,51 @@
        (global.set $boffop (global.get $boffo))  ;; Reset BOFFO
        (block $block
           (loop $loop
-             (local.set $c (i32.load8_u (global.get $readp)))
+             (local.set $c (call $peekChar))
              (if (i32.eqz (local.get $c))
                  (br $block))
+             ;; If the first character is '$'
+             (if (i32.and (i32.eq (local.get $c) (i32.const 36))
+                          (i32.eq (global.get $boffop)
+                                  (global.get $boffo)))
+                 ;; and the second character is also '$'
+                 (if (i32.eq (call $peekCharN (i32.const 1))
+                             (i32.const 36))
+                     (return (call $readRawSymbol))))
+             ;; Read until delimiters
              (if (call $isDelimiter (local.get $c))
                  (br $block))
              (local.set $c (call $toUpper (local.get $c)))
              (i32.store8 (global.get $boffop) (local.get $c))
              (global.set $boffop (i32.add (global.get $boffop) (i32.const 1)))
-             (global.set $readp (i32.add (global.get $readp) (i32.const 1)))
+             (call $rdseek (i32.const 1))
              (br $loop)))
        (i32.store8 (global.get $boffop) (i32.const 0))
        (call $makeNumOrSym))
+
+ ;;; `readp` must point to the first '$'
+ (func $readRawSymbol (result i32)
+       (local $c i32)
+       (local $s i32)
+       (call $rdseek (i32.const 2))  ;; Skip $$
+       (local.set $s (call $readChar))
+       (if (i32.eqz (local.get $s))
+           (return (call $makeStrError (global.get $str_err_eof))))
+       (block $block
+          (loop $loop
+             (local.set $c (call $readChar))
+             (if (i32.eqz (local.get $c))
+                 (return (call $makeStrError (global.get $str_err_eof))))
+             (if (i32.eq (local.get $c) (local.get $s))
+                 (br $block))
+             (i32.store8 (global.get $boffop) (local.get $c))
+             (global.set $boffop (i32.add (global.get $boffop) (i32.const 1)))
+             (br $loop)))
+       (if (i32.eq (global.get $boffo) (global.get $boffop))
+           ;; TODO: Support the "empty" symbol.
+           (return (call $makeStrError (global.get $str_err_eof))))
+       (i32.store8 (global.get $boffop) (i32.const 0))
+       (call $makeSym))
 
  (func $readList (result i32)
        (local $c i32)
@@ -983,7 +1043,7 @@
        (block $block
          (loop $loop
             (call $skipSpaces)
-            (local.set $c (i32.load8_u (global.get $readp)))
+            (local.set $c (call $peekChar))
             (if (i32.eqz (local.get $c))  ;; Empty
                 (then
                  (local.set
@@ -1002,7 +1062,7 @@
             (if (i32.eq (local.get $elm) (global.get $sym_dot))
                 (then
                  (call $skipSpaces)
-                 (local.set $c (i32.load8_u (global.get $readp)))
+                 (local.set $c (call $peekChar))
                  (if (i32.eq (local.get $c) (i32.const 41))  ;; RPar after dot
                      (then
                       (call $drop (call $pop))  ;; For GC ()
@@ -1016,7 +1076,7 @@
                      (then (local.set $ret (local.get $elm))
                            (br $block)))
                  (call $skipSpaces)
-                 (local.set $c (i32.load8_u (global.get $readp)))
+                 (local.set $c (call $peekChar))
                  (if (i32.ne (local.get $c) (i32.const 41))  ;; Not RPar
                      (then
                       (local.set
@@ -1033,7 +1093,7 @@
             (br $loop)))
        (if (call $errorp (local.get $ret))
            (return (local.get $ret)))
-       (global.set $readp (i32.add (global.get $readp) (i32.const 1)))
+       (call $rdseek (i32.const 1))
        (local.set $ret (call $nreverse (local.get $ret)))
        (if (i32.ne (local.get $elm) (i32.const 0))  ;; dotted list
            (local.set $ret (call $nconc (local.get $ret) (local.get $elm))))
@@ -1044,7 +1104,7 @@
        (local $c i32)
        (local $ret i32)
        (call $skipSpaces)
-       (local.set $c (i32.load8_u (global.get $readp)))
+       (local.set $c (call $peekChar))
        (block $block
          (if (i32.eqz (local.get $c))  ;; Empty
              (then
@@ -1057,12 +1117,12 @@
                    (br $block)))
          (if (i32.eq (local.get $c) (i32.const 40))  ;; LPar
              (then
-              (global.set $readp (i32.add (global.get $readp) (i32.const 1)))
+              (call $rdseek (i32.const 1))
               (local.set $ret (call $readList))
               (br $block)))
          (if (i32.eq (local.get $c) (i32.const 39))  ;; Quote
              (then
-              (global.set $readp (i32.add (global.get $readp) (i32.const 1)))
+              (call $rdseek (i32.const 1))
               (local.set $ret (call $read))
               (if (call $errorp (local.get $ret))
                   (br $block))
@@ -1078,7 +1138,8 @@
        (local.get $ret))
 
  (func $pushToOblist (param $sym i32)
-       (global.set $oblist (call $cons (local.get $sym) (global.get $oblist))))
+       (global.set $oblist (call $cons (local.get $sym) (global.get $oblist)))
+       (call $setcar (global.get $oblist_cell) (global.get $oblist)))
 
  ;;; `lst` and `a` must be protected from GC
  (func $evlis (param $lst i32) (param $a i32) (result i32)
@@ -1540,6 +1601,8 @@
  (func $markOblist
        (local $p i32)
        (local $sym i32)
+       ;; Set oblist_cell NIL first not to mark entire oblist.
+       (call $setcar (global.get $oblist_cell) (i32.const 0))
        (local.set $p (global.get $oblist))
        (loop $loop
           (if (i32.eqz (local.get $p))
@@ -1564,6 +1627,7 @@
           (if (i32.eqz (call $consp (local.get $p)))
               (then
                (global.set $oblist (call $nreverse (global.get $oblist)))
+               (call $setcar (global.get $oblist_cell) (global.get $oblist))
                (call $markObj (global.get $oblist))
                (return)))
           (local.set $next (call $cdr (local.get $p)))
@@ -1693,7 +1757,9 @@
                          (i32.const 0)))))
 
  (func $init
-       (local $cell i32)
+       (call $setcar (global.get $oblist_cell) (i32.const 0))
+       (call $setcdr (global.get $oblist_cell) (i32.const 0))
+
        (call $initsym0 (global.get $sym_pname) (global.get $str_pname))
        (call $initsym0 (global.get $sym_apval) (global.get $str_apval))
        (call $initsym0 (global.get $sym_dot) (global.get $str_dot))
@@ -1847,6 +1913,9 @@
              (global.get $sym_label) (global.get $str_label)
              (global.get $sym_fsubr)
              (call $int2fixnum (global.get $idx_label)))
+       (call $initsymKv
+             (global.get $sym_oblist) (global.get $str_oblist)
+             (global.get $sym_apval) (global.get $oblist_cell))
 
        (call $embedStrError (global.get $err_gc) (global.get $str_err_gc))
        )
@@ -2476,7 +2545,7 @@
        (i32.const 0))
  ;;; END SUBR/FSUBR
 
- ;;; EXPR/FEXPR
+ ;;; EXPR/FEXPR/APVAL
  (global $str_expr_defs i32 (i32.const 196608))
  (data
   (i32.const 196608)  ;; 64KB * 3
@@ -2495,9 +2564,26 @@
   "  (IF (EQ (CAR (CDR S)) IND) (RETURN (RPLACD S (CDR (CDR S))))) "
   "  (SETQ S (CDR S)) (GO L1)) (REMFLAG (CDR L) IND))))) "
   " (TRACE (LAMBDA (X) (FLAG X 'TRACE)))"
-  " (UNTRACE (LAMBDA (X) (REMFLAG X 'TRACE)))"
+  " (UNTRACE (LAMBDA (X) (REMFLAG X 'TRACE))) "
+  " (CSET (LAMBDA (OB VAL) (PROG2(PUTPROP OB (LIST VAL) 'APVAL) (LIST VAL)))) "
   "))"
-  "NIL "  ;; END OF EXPR
+  "(DEFLIST '( "
+  " (CSETQ (LAMBDA (S A) (CSET (CAR S) (EVAL (CAR (CDR S)) A)))) "
+  ") 'FEXPR) "
+  "(CSETQ DOLLAR '$) "
+  "(CSETQ SLASH '/) "
+  "(CSETQ LPAR '$$|(|) "
+  "(CSETQ RPAR '$$|)|) "
+  "(CSETQ COMMA '$$|,|) "
+  "(CSETQ PERIOD '$$|.|) "
+  "(CSETQ PLUS '+) "
+  "(CSETQ DASH '-) "
+  "(CSETQ STAR '*) "
+  "(CSETQ BLANK '$$| |) "
+  "(CSETQ EQSIGN '=) "
+  "(CSETQ EOF '$EOF$) "
+  "(CSETQ EOR '$EOR$) "
+  "NIL "  ;; END OF EXPR/FEXPR/APVAL
   "\00")
 
  (func $initexpr

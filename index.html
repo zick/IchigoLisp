@@ -111,9 +111,6 @@
           writeToConsole("\n");
       }
       var test_data = [
-          ["nil", "NIL"],
-          ["t", "*T*"],
-          ["f", "NIL"],
           ["1", "1"],
           ["'a", "A"],
           ["'very-long-name", "VERY-LONG-NAME"],
@@ -229,6 +226,37 @@
           ["(deflist '((consq (lambda (args a) (cons (car args) " +
            "(eval (car (cdr args)) a))))) 'fexpr)", "(CONSQ)"],
           ["(consq (+ 1 2) (+ 3 4)))", "((+ 1 2) . 7)"],
+          ["(cset 'ichigo 'strawberry)", "(STRAWBERRY)"],
+          ["ichigo", "STRAWBERRY"],
+          ["(csetq ichigo 15)", "(15)"],
+          ["ichigo", "15"],
+          ["'$$|AllYourBase|", "AllYourBase"],
+          ["'$$|(Kari)|", "(Kari)"],
+          ["(atom '$$|(Kari)|)", "*T*"],
+          ["'$", "$"],
+          ["'$a", "$A"],
+
+          // APVALs
+          ["blank", " "],
+          // TODO: charcount
+          ["comma", ","],
+          // TODO: curchar
+          ["dollar", "$"],
+          ["eof", "$EOF$"],
+          ["eor", "$EOR$"],
+          ["eqsign", "="],
+          ["f", "NIL"],
+          ["lpar", "("],
+          ["nil", "NIL"],
+          ["(atom oblist)", "NIL"],
+          ["(atom (car oblist))", "*T*"],
+          ["period", "."],
+          ["plus", "+"],
+          ["rpar", ")"],
+          ["slash", "/"],
+          ["star", "*"],
+          ["t", "*T*"],
+          ["*t*", "*T*"],
 
           ["", /R4/],
           ["(", /R4/],
@@ -256,6 +284,9 @@
           ["(cond ((< 2 1) 0) ((> 3 2) (list ub)) (t 10))", /A8/],
           ["(cond ((< 2 1) 0) ((> 3 'a) (* 4 5)) (t 10))", /I3/],
           ["(eval 'ub)", /A8/],
+          ["$$", /R4/],
+          ["$$|", /R4/],
+          ["$$|foo", /R4/],
       ];
       function runTest() {
           var num_pass = 0, num_fail = 0;
