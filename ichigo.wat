@@ -81,6 +81,7 @@
 
  (global $boffo i32 (i32.const 10240))
  (global $boffop (mut i32) (i32.const 10240))
+ (global $read_start (mut i32) (i32.const 0))
  (global $readp (mut i32) (i32.const 0))
  (global $printp (mut i32) (i32.const 0))
 
@@ -227,6 +228,16 @@
  (global $str_charcount i32 (i32.const 2680))
  (data (i32.const 2690) "CURCHAR\00")  ;; 10
  (global $str_curchar i32 (i32.const 2690))
+ (data (i32.const 2700) "$EOF$\00")  ;; 6
+ (global $str_eof i32 (i32.const 2700))
+ (data (i32.const 2710) "$EOR$\00")  ;; 6
+ (global $str_eor i32 (i32.const 2710))
+ (data (i32.const 2720) "ADVANCE\00")  ;; 8
+ (global $str_advance i32 (i32.const 2720))
+ (data (i32.const 2730) "STARTREAD\00")  ;; 10
+ (global $str_startread i32 (i32.const 2730))
+ (data (i32.const 2740) "ENDREAD\00")  ;; 8
+ (global $str_endread i32 (i32.const 2740))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -299,8 +310,15 @@
  (global $sym_oblist i32 (i32.const 0x0218))
  (global $sym_charcount i32 (i32.const 0x0220))
  (global $sym_curchar i32 (i32.const 0x0228))
- (global $oblist_cell i32 (i32.const 0x0230))
- (global $primitive_obj_end i32 (i32.const 0x0238))
+ (global $oblist_cell i32 (i32.const 0x0230))  ;; must not mark this object
+ (global $charcount_cell i32 (i32.const 0x0238))
+ (global $curchar_cell i32 (i32.const 0x0240))
+ (global $sym_eof i32 (i32.const 0x0248))
+ (global $sym_eor i32 (i32.const 0x0250))
+ (global $sym_advance i32 (i32.const 0x0258))
+ (global $sym_startread i32 (i32.const 0x0260))
+ (global $sym_endread i32 (i32.const 0x0268))
+ (global $primitive_obj_end i32 (i32.const 0x0270))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -922,6 +940,10 @@
  (func $getCEValue (param $obj i32) (result i32)
        (call $cddr (local.get $obj)))
 
+ ;;; Sets `readp` to start reading a string.
+ (func $rdset (param $n i32)
+       (global.set $read_start (local.get $n))
+       (global.set $readp (local.get $n)))
  ;;; Increments `readp` by `n`.
  (func $rdseek (param $n i32)
        (global.set $readp (i32.add (global.get $readp) (local.get $n))))
@@ -932,6 +954,7 @@
  (func $peekChar (result i32)
        (call $peekCharN (i32.const 0)))
  ;;; Returns the first character from `readp` and increment `readp`.
+ ;;; If `readp` points to '\00', `readp` doesn't change.
  (func $readChar (result i32)
        (local $c i32)
        (local.set $c (call $peekChar))
@@ -1759,6 +1782,10 @@
  (func $init
        (call $setcar (global.get $oblist_cell) (i32.const 0))
        (call $setcdr (global.get $oblist_cell) (i32.const 0))
+       (call $setcar (global.get $curchar_cell) (i32.const 0))
+       (call $setcdr (global.get $curchar_cell) (i32.const 0))
+       (call $setcar (global.get $charcount_cell) (i32.const 0))
+       (call $setcdr (global.get $charcount_cell) (i32.const 0))
 
        (call $initsym0 (global.get $sym_pname) (global.get $str_pname))
        (call $initsym0 (global.get $sym_apval) (global.get $str_apval))
@@ -1771,6 +1798,9 @@
        (call $initsym0 (global.get $sym_lambda) (global.get $str_lambda))
        (call $initsym0 (global.get $sym_funarg) (global.get $str_funarg))
        (call $initsym0 (global.get $sym_trace) (global.get $str_trace))
+       (call $initsym0 (global.get $sym_eof) (global.get $str_eof))
+       (call $initsym0 (global.get $sym_eor) (global.get $str_eor))
+
        (call $initsym1
              (global.get $sym_nil) (global.get $str_nil) (i32.const 0))
        (call $initsym1
@@ -1781,6 +1811,7 @@
              (global.get $sym_tstar) (global.get $str_tstar)
              (global.get $sym_tstar))
 
+       ;;; SUBR
        (call $initsymSubr (global.get $sym_car) (global.get $str_car)
              (global.get $idx_car) (i32.const 1))
        (call $initsymSubr (global.get $sym_cdr) (global.get $str_cdr)
@@ -1867,7 +1898,15 @@
              (global.get $idx_eval) (i32.const 2))
        (call $initsymSubr (global.get $sym_apply) (global.get $str_apply)
              (global.get $idx_apply) (i32.const 3))
+       (call $initsymSubr (global.get $sym_advance) (global.get $str_advance)
+             (global.get $idx_advance) (i32.const 0))
+       (call $initsymSubr (global.get $sym_startread)
+             (global.get $str_startread)
+             (global.get $idx_startread) (i32.const 0))
+       (call $initsymSubr (global.get $sym_endread) (global.get $str_endread)
+             (global.get $idx_endread) (i32.const 0))
 
+       ;;; FSUBR
        (call $initsymKv
              (global.get $sym_list) (global.get $str_list)
              (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_list)))
@@ -1913,10 +1952,19 @@
              (global.get $sym_label) (global.get $str_label)
              (global.get $sym_fsubr)
              (call $int2fixnum (global.get $idx_label)))
+
+       ;; APVAL
        (call $initsymKv
              (global.get $sym_oblist) (global.get $str_oblist)
              (global.get $sym_apval) (global.get $oblist_cell))
+       (call $initsymKv
+             (global.get $sym_curchar) (global.get $str_curchar)
+             (global.get $sym_apval) (global.get $curchar_cell))
+       (call $initsymKv
+             (global.get $sym_charcount) (global.get $str_charcount)
+             (global.get $sym_apval) (global.get $charcount_cell))
 
+       ;; Errors
        (call $embedStrError (global.get $err_gc) (global.get $str_err_gc))
        )
 
@@ -2031,6 +2079,12 @@
  (global $idx_eval i32 (i32.const 142))
  (elem (i32.const 143) $subr_apply)
  (global $idx_apply i32 (i32.const 143))
+ (elem (i32.const 144) $subr_advance)
+ (global $idx_advance i32 (i32.const 144))
+ (elem (i32.const 145) $subr_startread)
+ (global $idx_startread i32 (i32.const 145))
+ (elem (i32.const 146) $subr_endread)
+ (global $idx_endread i32 (i32.const 146))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -2543,6 +2597,38 @@
  (func $subr_apply (result i32)
        (unreachable)
        (i32.const 0))
+
+ (func $subr_advance (result i32)
+       (local $c i32)
+       (local $ret i32)
+       (local.set $ret (i32.const 0))
+       (local.set $c (call $readChar))
+       (if (i32.eqz (local.get $c))
+           (local.set $ret (global.get $sym_eof)))
+       (if (i32.or (i32.eq (local.get $c) (i32.const 10))  ;; '\n'
+                   (i32.eq (local.get $c) (i32.const 13)))  ;; '\r'
+           (local.set $ret (global.get $sym_eor)))
+       (if (i32.eqz (local.get $ret))
+           (then
+            ;; Store "c\00" to boffo, and make a symbol.
+            (i32.store8 (global.get $boffo) (local.get $c))
+            (i32.store8 (i32.add (global.get $boffo) (i32.const 1))
+                        (i32.const 0))
+            (local.set $ret (call $makeSym))))
+       (call $setcar (global.get $curchar_cell) (local.get $ret))
+       (call $setcar
+             (global.get $charcount_cell)
+             (call $int2fixnum
+                   (i32.sub (global.get $readp) (global.get $read_start))))
+       (local.get $ret))
+ (func $subr_startread (result i32)
+       ;; TODO: Implement the logic
+       (call $subr_advance))
+ (func $subr_endread (result i32)
+       ;; TODO: Implement the logic
+       (call $setcar (global.get $curchar_cell) (global.get $sym_eof))
+       (global.get $sym_eof))
+
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL
@@ -2588,7 +2674,7 @@
 
  (func $initexpr
        (local $ret i32)
-       (global.set $readp (global.get $str_expr_defs))
+       (call $rdset (global.get $str_expr_defs))
        (loop $loop
           (global.set $printp (i32.const 40960))
           (local.set $ret (call $eval (call $read) (i32.const 0)))
@@ -2613,14 +2699,14 @@
        (local.set $alist (i32.const 0))
 
        (global.set $printp (i32.const 40960))
-       (global.set $readp (i32.const 51200))
+       (call $rdset (i32.const 51200))
        (call $printObj
              (call $eval (call $read) (local.get $alist)))
        (call $outputString (i32.const 40960)))
 
  (func (export "read")
        (global.set $printp (i32.const 40960))
-       (global.set $readp (i32.const 51200))
+       (call $rdset (i32.const 51200))
        (call $printObj (call $read))
        (call $outputString (i32.const 40960)))
 
