@@ -238,8 +238,8 @@
  (global $str_startread i32 (i32.const 2730))
  (data (i32.const 2740) "ENDREAD\00")  ;; 8
  (global $str_endread i32 (i32.const 2740))
- (data (i32.const 2750) "SELECT\00")  ;; 7
- (global $str_select i32 (i32.const 2750))
+ (data (i32.const 2750) "NCONC\00")  ;; 6
+ (global $str_nconc i32 (i32.const 2750))
  (data (i32.const 2760) "AND\00")  ;; 4
  (global $str_and i32 (i32.const 2760))
  (data (i32.const 2770) "OR\00")  ;; 3
@@ -334,7 +334,7 @@
  (global $sym_advance i32 (i32.const 0x0258))
  (global $sym_startread i32 (i32.const 0x0260))
  (global $sym_endread i32 (i32.const 0x0268))
- (global $sym_select i32 (i32.const 0x0270))
+ (global $sym_nconc i32 (i32.const 0x0270))
  (global $sym_and i32 (i32.const 0x0278))
  (global $sym_or i32 (i32.const 0x0280))
  (global $sym_logand i32 (i32.const 0x0288))
@@ -1477,6 +1477,10 @@
        (call $log (i32.const 10000006));;;;;
        (if (i32.eqz (local.get $applying))
            (local.set $args (call $evlis (local.get $args) (local.get $a))))
+       (if (call $errorp (local.get $args))
+           (then
+            (local.set $ret (local.get $args))
+            (br $evalbk)))
        (if (i32.ne (local.get $tracing) (i32.const 0))
            (then
             (global.set
@@ -1929,6 +1933,8 @@
              (global.get $idx_startread) (i32.const 0))
        (call $initsymSubr (global.get $sym_endread) (global.get $str_endread)
              (global.get $idx_endread) (i32.const 0))
+       (call $initsymSubr (global.get $sym_nconc) (global.get $str_nconc)
+             (global.get $idx_nconc) (i32.const 2))
 
        ;;; FSUBR
        (call $initsymKv
@@ -1976,10 +1982,6 @@
              (global.get $sym_label) (global.get $str_label)
              (global.get $sym_fsubr)
              (call $int2fixnum (global.get $idx_label)))
-       (call $initsymKv
-             (global.get $sym_select) (global.get $str_select)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_select)))
        (call $initsymKv
              (global.get $sym_and) (global.get $str_and)
              (global.get $sym_fsubr)
@@ -2141,8 +2143,8 @@
  (global $idx_startread i32 (i32.const 145))
  (elem (i32.const 146) $subr_endread)
  (global $idx_endread i32 (i32.const 146))
- (elem (i32.const 147) $fsubr_select)
- (global $idx_select i32 (i32.const 147))
+ (elem (i32.const 147) $subr_nconc)
+ (global $idx_nconc i32 (i32.const 147))
  (elem (i32.const 148) $fsubr_and)
  (global $idx_and i32 (i32.const 148))
  (elem (i32.const 149) $fsubr_or)
@@ -2701,48 +2703,6 @@
        (call $setcar (global.get $curchar_cell) (global.get $sym_eof))
        (global.get $sym_eof))
 
- (func $fsubr_select (result i32)
-       (local $a i32)
-       (local $args i32)
-       (local $val i32)
-       (local $tmp i32)
-       (local $ret i32)
-       (local.set $a (call $getAArg))
-       (local.set $args (call $cdr (call $getEArg)))  ;; (val (q e) ... e0)
-       (call $push (i32.const 1))  ;; *Need* to eval return value
-       (local.set
-        $val (call $eval (call $safecar (local.get $args)) (local.get $a)))
-       (if (call $errorp (local.get $val))
-           (return (local.get $val)))
-       (call $push (local.get $val))  ;; For GC (val)
-       (local.set $args (call $safecdr (local.get $args)))  ;; ((q e) ... e0)
-       (if (i32.eqz (call $consp (local.get $args)))
-           (return (i32.const 0)))
-       (block $block
-         (loop $loop
-            (if (i32.eqz (call $cdr (local.get $args)))  ;; (e0)
-                (then
-                 (local.set $ret (call $car (local.get $args))) ;; e0
-                 (br $block)))
-            (local.set
-             $tmp (call $eval
-                        (call $safecar (call $car (local.get $args)))  ;; q
-                        (local.get $a)))
-            (if (call $errorp (local.get $tmp))
-                (then
-                 (local.set $ret (local.get $tmp))
-                 (br $block)))
-            (if (i32.eq (local.get $val) (local.get $tmp))
-                (then
-                 (local.set
-                  $ret (call $safecar
-                             (call $safecdr (call $car (local.get $args)))))
-                 (br $block)))
-            (local.set $args (call $cdr (local.get $args)))
-            (br $loop)))
-       (call $drop (call $pop))  ;; For GC ()
-       (local.get $ret))
-
  (func $fsubr_and (result i32)
        (local $a i32)
        (local $args i32)
@@ -2918,6 +2878,24 @@
           (local.set $args (call $cdr (local.get $args)))
           (br $loop))
        (i32.const 0))
+
+  (func $subr_nconc (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local $ret i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (local.set $ret (local.get $arg1))
+       (if (i32.eqz (call $consp (local.get $arg1)))
+           (return (local.get $arg2)))
+       (block $block
+         (loop $loop
+            (br_if $block
+                   (i32.eqz (call $consp (call $cdr (local.get $arg1)))))
+            (local.set $arg1 (call $cdr (local.get $arg1)))
+            (br $loop)))
+       (call $setcdr (local.get $arg1) (local.get $arg2))
+       (local.get $ret))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL
@@ -2926,7 +2904,8 @@
   (i32.const 196608)  ;; 64KB * 3
   "(PUTPROP 'DEFLIST '(LAMBDA (L IND) "
   "(IF L "
-  "(CONS (PUTPROP (CAR (CAR L)) (CAR (CDR (CAR L))) IND) (DEFINE (CDR L))) "
+  "(CONS (PUTPROP (CAR (CAR L)) (CAR (CDR (CAR L))) IND) "
+  "(DEFLIST (CDR L) IND)) "
   "L)) "
   "'EXPR) "
   "(DEFLIST '((DEFINE (LAMBDA (L) (DEFLIST L 'EXPR)))) 'EXPR) "
@@ -2944,6 +2923,14 @@
   "))"
   "(DEFLIST '( "
   " (CSETQ (LAMBDA (S A) (CSET (CAR S) (EVAL (CAR (CDR S)) A)))) "
+  " (SELECT (LAMBDA (S A) ((LABEL REC (LAMBDA (V L) "
+  "  (COND ((NULL L) NIL) ((NULL (CDR L)) (EVAL (CAR L) A)) "
+  "  ((EQ (EVAL (CAR (CAR L)) A) V) (EVAL (CAR (CDR (CAR L))) A)) "
+  "  (T (REC V (CDR L)))))) (EVAL (CAR S) A) (CDR S)))) "
+  " (CONC (LAMBDA (S A) (IF (NULL S) NIL "
+  "  ((LABEL REC (LAMBDA (X Y) (IF (NULL Y) X "
+  "  (REC (NCONC X (EVAL (CAR Y) A)) (CDR Y))))) "
+  "  (EVAL (CAR S) A) (CDR S))))) "
   ") 'FEXPR) "
   "(CSETQ DOLLAR '$) "
   "(CSETQ SLASH '/) "

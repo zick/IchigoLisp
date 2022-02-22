@@ -264,6 +264,13 @@
           ["(max 55 22 88 33)", "88"],
           ["(min 1234567)", "1234567"],
           ["(min 55 22 88 33)", "22"],
+          ["(nconc nil 2)", "2"],
+          ["(nconc (list 1) 2)", "(1 . 2)"],
+          ["(nconc (list 1) (list 2))", "(1 2)"],
+          ["(conc)", "NIL"],
+          ["(conc 1)", "1"],
+          ["(conc (list (cons 1 2)) (list 3) (list (list 4 5)))",
+           "((1 . 2) 3 (4 5))"],
 
           // APVALs
           ["blank", " "],
@@ -324,6 +331,7 @@
           ["(logand 1 'a 3)", /I3/],
           ["(max 1 ub 3)", /A8/],
           ["(max 1 'a 3)", /I3/],
+          ["(conc (list 1) ub (list 3))", /A8/],
       ];
       function runTest() {
           var num_pass = 0, num_fail = 0;
