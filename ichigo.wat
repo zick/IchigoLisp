@@ -88,6 +88,7 @@
  (global $oblist (mut i32) (i32.const 0))
 
  (global $trace_level (mut i32) (i32.const 0))
+ (global $traceset_env (mut i32) (i32.const 0))
 
  ;;; Symbol strings [2000 - 4095]
  (data (i32.const 2000) "NIL\00")  ;; 4
@@ -254,6 +255,8 @@
  (global $str_max i32 (i32.const 2810))
  (data (i32.const 2820) "MIN\00")  ;; 4
  (global $str_min i32 (i32.const 2820))
+ (data (i32.const 2830) "TRACESET\00")  ;; 9
+ (global $str_traceset i32 (i32.const 2830))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -342,7 +345,8 @@
  (global $sym_logxor i32 (i32.const 0x0298))
  (global $sym_max i32 (i32.const 0x02a0))
  (global $sym_min i32 (i32.const 0x02a8))
- (global $primitive_obj_end i32 (i32.const 0x02b0))
+ (global $sym_traceset i32 (i32.const 0x02b0))
+ (global $primitive_obj_end i32 (i32.const 0x02b8))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -1452,6 +1456,8 @@
               (then
                (if (call $get (local.get $fn) (global.get $sym_trace))
                     (local.set $tracing (local.get $fn)))
+               (if (call $get (local.get $fn) (global.get $sym_traceset))
+                    (global.set $traceset_env (global.get $sym_tstar)))
                (local.set $fn (local.get $tmp))))
           ;; Don't lookup fn from alist twice (to avoid infinite loop)
           (if (i32.and (call $symbolp (local.get $fn))
@@ -1828,6 +1834,7 @@
        (call $initsym0 (global.get $sym_trace) (global.get $str_trace))
        (call $initsym0 (global.get $sym_eof) (global.get $str_eof))
        (call $initsym0 (global.get $sym_eor) (global.get $str_eor))
+       (call $initsym0 (global.get $sym_traceset) (global.get $str_traceset))
 
        (call $initsym1
              (global.get $sym_nil) (global.get $str_nil) (i32.const 0))
@@ -2328,6 +2335,7 @@
        (local $exps i32)
        (local $exp i32)
        (local $ret i32)
+       (local $traceset_on i32)
        (local.set $a (call $getAArg))
        (local.set $args (call $cdr (call $getEArg)))
        (if (i32.ne (call $car (local.get $args)) (i32.const 0))
@@ -2335,6 +2343,11 @@
              $a
              (call $pairlis (call $car (local.get $args)) (i32.const 0)
                    (local.get $a))))
+       (local.set $traceset_on (i32.const 0))
+       (if (i32.eq (global.get $traceset_env) (global.get $sym_tstar))
+           (then
+            (local.set $traceset_on (i32.const 1))
+            (global.set $traceset_env (local.get $a))))
        (call $push (local.get $a))  ;; For GC (a)
        (local.set $exps (call $cdr (local.get $args)))
        (local.set $ret (i32.const 0))
@@ -2375,6 +2388,8 @@
             (br $loop)))
        (call $drop (call $pop))  ;; For GC ()
        (call $push (i32.const 0))  ;; Don't need to eval return value
+       (if (local.get $traceset_on)
+           (global.set $traceset_env (i32.const 0)))
        (local.get $ret))
 
  (func $subr_print (result i32)
@@ -2416,6 +2431,15 @@
        (if (i32.eqz (local.get $p))
            ;; TODO: Return the specific error
            (return (call $makeStrError (global.get $str_err_generic))))
+       (if (i32.eq (local.get $a) (global.get $traceset_env))
+           (then
+            (call $printComment)
+            (call $printObj (local.get $arg1))
+            (call $printSpace)
+            (call $printChar (i32.const 61))  ;; '='
+            (call $printSpace)
+            (call $printObj (local.get $arg2))
+            (call $terprif)))
        (call $setcdr (local.get $p) (local.get $arg2))
        (local.get $arg2))
  (func $fsubr_setq (result i32)
@@ -2431,11 +2455,22 @@
        (local.set $arg2 (call $eval (local.get $arg2) (local.get $a)))
        (local.set $p (call $assoc (local.get $arg1) (local.get $a)))
        (if (i32.eqz (local.get $p))
+           (then
             ;;; Replace the return value
             ;; TODO: Return the specific error
-           (local.set
-            $arg2 (call $makeStrError (global.get $str_err_generic)))
-           (call $setcdr (local.get $p) (local.get $arg2)))
+            (local.set
+             $arg2 (call $makeStrError (global.get $str_err_generic))))
+           (else
+            (call $setcdr (local.get $p) (local.get $arg2))
+            (if (i32.eq (local.get $a) (global.get $traceset_env))
+                (then
+                 (call $printComment)
+                 (call $printObj (local.get $arg1))
+                 (call $printSpace)
+                 (call $printChar (i32.const 61))  ;; '='
+                 (call $printSpace)
+                 (call $printObj (local.get $arg2))
+                 (call $terprif)))))
        (call $push (i32.const 0))  ;; Don't need to eval return value
        (local.get $arg2))
 
@@ -2919,7 +2954,13 @@
   "  (SETQ S (CDR S)) (GO L1)) (REMFLAG (CDR L) IND))))) "
   " (TRACE (LAMBDA (X) (FLAG X 'TRACE)))"
   " (UNTRACE (LAMBDA (X) (REMFLAG X 'TRACE))) "
+  " (TRACESET (LAMBDA (X) (FLAG X 'TRACESET)))"
+  " (UNTRACESET (LAMBDA (X) (REMFLAG X 'TRACESET))) "
   " (CSET (LAMBDA (OB VAL) (PROG2(PUTPROP OB (LIST VAL) 'APVAL) (LIST VAL)))) "
+  " (PRINTPROP (LAMBDA (X) (IF (ATOM X) (PROG2 (PRINT (CDR X)) X) NIL)))"
+  " (PUNCHDEF (LAMBDA (X) (PROG (V) (SETQ V (GET X 'EXPR)) "
+  "  (IF V (RETURN (PROG2 (PRINT V) X))) (SETQ V (GET X 'FEXPR)) "
+  "  (IF V (RETURN (PROG2 (PRINT V) X)))))) "
   "))"
   "(DEFLIST '( "
   " (CSETQ (LAMBDA (S A) (CSET (CAR S) (EVAL (CAR (CDR S)) A)))) "

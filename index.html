@@ -271,6 +271,10 @@
           ["(conc 1)", "1"],
           ["(conc (list (cons 1 2)) (list 3) (list (list 4 5)))",
            "((1 . 2) 3 (4 5))"],
+          ["(traceset '(a))", "NIL"],
+          ["(null (get 'a 'traceset))", "NIL"],
+          ["(untraceset '(a))", "NIL"],
+          ["(null (get 'a 'traceset))", "*T*"],
 
           // APVALs
           ["blank", " "],
