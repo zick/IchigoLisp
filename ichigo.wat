@@ -279,6 +279,22 @@
  (global $str_opchar i32 (i32.const 2920))
  (data (i32.const 2930) "DASH\00")  ;; 5
  (global $str_dash i32 (i32.const 2930))
+ (data (i32.const 2940) "APPEND\00")  ;; 7
+ (global $str_append i32 (i32.const 2940))
+ (data (i32.const 2950) "ATTRIB\00")  ;; 7
+ (global $str_attrib i32 (i32.const 2950))
+ (data (i32.const 2960) "COPY\00")  ;; 5
+ (global $str_copy i32 (i32.const 2960))
+ (data (i32.const 2970) "NOT\00")  ;; 4
+ (global $str_not i32 (i32.const 2970))
+ (data (i32.const 2980) "PROP\00")  ;; 5
+ (global $str_prop i32 (i32.const 2980))
+ (data (i32.const 2990) "REMPROP\00")  ;; 8
+ (global $str_remprop i32 (i32.const 2990))
+ (data (i32.const 3000) "PAIR\00")  ;; 5
+ (global $str_pair i32 (i32.const 3000))
+ (data (i32.const 3010) "SASSOC\00")  ;; 7
+ (global $str_sassoc i32 (i32.const 3010))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -378,7 +394,15 @@
  (global $sym_digit i32 (i32.const 0x02f0))
  (global $sym_opchar i32 (i32.const 0x02f8))
  (global $sym_dash i32 (i32.const 0x0300))
- (global $primitive_obj_end i32 (i32.const 0x0308))
+ (global $sym_append i32 (i32.const 0x0308))
+ (global $sym_attrib i32 (i32.const 0x0310))
+ (global $sym_copy i32 (i32.const 0x0318))
+ (global $sym_not i32 (i32.const 0x0320))
+ (global $sym_prop i32 (i32.const 0x0328))
+ (global $sym_remprop i32 (i32.const 0x0330))
+ (global $sym_pair i32 (i32.const 0x0338))
+ (global $sym_sassoc i32 (i32.const 0x0340))
+ (global $primitive_obj_end i32 (i32.const 0x0348))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -490,6 +514,8 @@
        (call $cdr (call $cdr (local.get $cell))))
  (func $caddr (param $cell i32) (result i32)
        (call $car (call $cdr (call $cdr (local.get $cell)))))
+ (func $cdddr (param $cell i32) (result i32)
+       (call $cdr (call $cdr (call $cdr (local.get $cell)))))
 
  (func $safecar (param $obj i32) (result i32)
        (if (call $consp (local.get $obj))
@@ -792,6 +818,17 @@
             (call $drop (call $pop))))  ;; For GC
        (call $setcar (local.get $p) (local.get $val)))
 
+ (func $remprop (param $obj i32) (param $key i32)
+       (loop $block
+          (loop $loop
+             (if (i32.eqz (local.get $obj)) (return))
+             (if (i32.eqz (call $cdr (local.get $obj))) (return))
+             (if (i32.eq (call $cadr (local.get $obj)) (local.get $key))
+                 (call $setcdr
+                       (local.get $obj) (call $cdddr (local.get $obj))))
+             (local.set $obj (call $cdr (local.get $obj)))
+             (br $loop))))
+
  (func $nreverse (param $lst i32) (result i32)
        (local $ret i32)
        (local $tmp i32)
@@ -809,7 +846,7 @@
  (func $nconc (param $lst i32) (param $elm i32) (result i32)
        (local $ret i32)
        (local.set $ret (local.get $lst))
-       (if (call $consp (local.get $lst))
+       (if (call $dwcellp (local.get $lst))
            (loop $loop
               (if (call $consp (call $cdr (local.get $lst)))
                   (then
@@ -1085,13 +1122,17 @@
 
  (global $ce_go i32 (i32.const 1))
  (global $ce_return i32 (i32.const 2))
+ (global $ce_apply i32 (i32.const 3))
+
  ;; Returns (err n . args)
  (func $makeCatchableError (param $n i32) (param $args i32) (result i32)
        (local $ret i32)
+       (call $push (local.get $args))  ;; For GC (args)
        (local.set
         $ret (call $cons (call $int2fixnum (local.get $n)) (local.get $args)))
-       (call $push (local.get $ret))  ;; For GC (ret)
+       (call $push (local.get $ret))  ;; For GC (args ret)
        (local.set $ret (call $cons (global.get $tag_error) (local.get $ret)))
+       (call $drop (call $pop))  ;; For GC (args)
        (call $drop (call $pop))  ;; For GC ()
        (local.get $ret))
  (func $catchablep (param $obj i32) (param $n i32) (result i32)
@@ -1452,6 +1493,13 @@
        (if (i32.eqz (local.get $e))
            (then (local.set $ret (i32.const 0))
                  (br $evalbk)))
+       (local.set $applying (i32.const 0))
+       (if (call $catchablep (local.get $e) (global.get $ce_apply))
+           (then
+            (local.set $e (call $getCEValue (local.get $e)))
+            (i32.store (i32.sub (global.get $sp) (i32.const 8))
+                       (local.get $e))  ;; replace `e` in stack
+            (local.set $applying (i32.const 1))))
        (if (call $errorp (local.get $e))
            (then (local.set $ret (local.get $e))
                  (br $evalbk)))
@@ -1489,7 +1537,6 @@
        (local.set $fn (call $car (local.get $e)))
        (local.set $args (call $cdr (local.get $e)))
        (local.set $fn_lookup (i32.const 0))
-       (local.set $applying (i32.const 0))
        (loop $complp
           ;; Check if fn is FSUBR
           (local.set $tmp
@@ -2098,6 +2145,22 @@
              (global.get $idx_opchar) (i32.const 1))
        (call $initsymSubr (global.get $sym_dash) (global.get $str_dash)
              (global.get $idx_dash) (i32.const 1))
+       (call $initsymSubr (global.get $sym_attrib) (global.get $str_attrib)
+             (global.get $idx_attrib) (i32.const 2))
+       (call $initsymSubr (global.get $sym_append) (global.get $str_append)
+             (global.get $idx_append) (i32.const 2))
+       (call $initsymSubr (global.get $sym_copy) (global.get $str_copy)
+             (global.get $idx_copy) (i32.const 1))
+       (call $initsymSubr (global.get $sym_not) (global.get $str_not)
+             (global.get $idx_not) (i32.const 1))
+       (call $initsymSubr (global.get $sym_prop) (global.get $str_prop)
+             (global.get $idx_prop) (i32.const 3))
+       (call $initsymSubr (global.get $sym_remprop) (global.get $str_remprop)
+             (global.get $idx_remprop) (i32.const 2))
+       (call $initsymSubr (global.get $sym_pair) (global.get $str_pair)
+             (global.get $idx_pair) (i32.const 2))
+       (call $initsymSubr (global.get $sym_sassoc) (global.get $str_sassoc)
+             (global.get $idx_sassoc) (i32.const 3))
 
        ;;; FSUBR
        (call $initsymKv
@@ -2342,6 +2405,22 @@
  (global $idx_opchar i32 (i32.const 163))
  (elem (i32.const 164) $subr_dash)
  (global $idx_dash i32 (i32.const 164))
+ (elem (i32.const 165) $subr_append)
+ (global $idx_append i32 (i32.const 165))
+ (elem (i32.const 166) $subr_attrib)
+ (global $idx_attrib i32 (i32.const 166))
+ (elem (i32.const 167) $subr_copy)
+ (global $idx_copy i32 (i32.const 167))
+ (elem (i32.const 168) $subr_not)
+ (global $idx_not i32 (i32.const 168))
+ (elem (i32.const 169) $subr_prop)
+ (global $idx_prop i32 (i32.const 169))
+ (elem (i32.const 170) $subr_remprop)
+ (global $idx_remprop i32 (i32.const 170))
+ (elem (i32.const 171) $subr_pair)
+ (global $idx_pair i32 (i32.const 171))
+ (elem (i32.const 172) $subr_sassoc)
+ (global $idx_sassoc i32 (i32.const 172))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -3304,6 +3383,123 @@
        (if (i32.eq (local.get $tmp) (i32.const 0x00002d02))  ;; '-'
            (return (global.get $sym_tstar)))
        (i32.const 0))
+
+   (func $subr_append (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local $ret i32)
+         (local $cur i32)
+         (local $tmp i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (if (i32.eqz (local.get $arg1))
+             (return (local.get $arg2)))
+         (local.set
+          $ret (call $cons (call $car (local.get $arg1)) (i32.const 0)))
+         (call $push (local.get $ret))  ;; For GC (ret)
+         (local.set $arg1 (call $cdr (local.get $arg1)))
+         (local.set $cur (local.get $ret))
+         (block $block
+           (loop $loop
+              (if (i32.eqz (local.get $arg1))
+                  (br $block))
+              (local.set
+               $tmp (call $cons (call $car (local.get $arg1)) (i32.const 0)))
+              (call $setcdr (local.get $cur) (local.get $tmp))
+              (local.set $cur (local.get $tmp))
+              (local.set $arg1 (call $cdr (local.get $arg1)))
+              (br $loop)))
+         (call $setcdr (local.get $cur) (local.get $arg2))
+         (call $pop))  ;; For GC ()
+
+   (func $subr_attrib (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (call $drop (call $nconc (local.get $arg1) (local.get $arg2)))
+         (local.get $arg2))
+
+   (func $copy (param $x i32) (result i32)
+         (local $left i32)
+         (local $right i32)
+         (local $ret i32)
+         (if (i32.eqz (call $consp (local.get $x)))
+             (return (local.get $x)))
+         (local.set $left (call $copy (call $car (local.get $x))))
+         (call $push (local.get $left))  ;; For GC (left)
+         (local.set $right (call $copy (call $cdr (local.get $x))))
+         (call $push (local.get $right))  ;; For GC (left, right)
+         (local.set $ret (call $cons (local.get $left) (local.get $right)))
+         (call $drop (call $pop))  ;; For GC (left)
+         (call $drop (call $pop))  ;; For GC ()
+         (local.get $ret))
+   (func $subr_copy (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         (call $copy (local.get $arg1)))
+
+   (func $subr_not (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         (if (i32.eqz (local.get $arg1))
+             (return (global.get $sym_tstar)))
+         (i32.const 0))
+
+   (func $subr_prop (result i32)
+         (local $a i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local $arg3 i32)
+         (local $ret i32)
+         (local.set $a (call $getAArgInSubr))
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (local.set $arg3 (call $getArg3))
+         (local.set $ret (call $prop (local.get $arg1) (local.get $arg2)))
+         (if (i32.eqz (local.get $ret))
+             (return
+               (call $eval
+                     (call $makeCatchableError
+                           (global.get $ce_apply)
+                           (call $cons (local.get $arg3) (i32.const 0)))
+                     (local.get $a))))
+         (local.get $ret))
+
+   (func $subr_remprop (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (call $remprop (local.get $arg1) (local.get $arg2))
+         (i32.const 0))
+
+   (func $subr_pair (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (call $pairlis (local.get $arg1) (local.get $arg2) (i32.const 0)))
+
+   (func $subr_sassoc (result i32)
+         (local $a i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local $arg3 i32)
+         (local $ret i32)
+         (local.set $a (call $getAArgInSubr))
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (local.set $arg3 (call $getArg3))
+         (local.set $ret (call $assoc (local.get $arg1) (local.get $arg2)))
+         (if (i32.eqz (local.get $ret))
+             (return
+               (call $eval
+                     (call $makeCatchableError
+                           (global.get $ce_apply)
+                           (call $cons (local.get $arg3) (i32.const 0)))
+                     (local.get $a))))
+         (local.get $ret))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL
