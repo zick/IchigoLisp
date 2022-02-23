@@ -271,6 +271,14 @@
  (global $str_numob i32 (i32.const 2880))
  (data (i32.const 2890) "UNPACK\00")  ;; 7
  (global $str_unpack i32 (i32.const 2890))
+ (data (i32.const 2900) "LITER\00")  ;; 6
+ (global $str_liter i32 (i32.const 2900))
+ (data (i32.const 2910) "DIGIT\00")  ;; 6
+ (global $str_digit i32 (i32.const 2910))
+ (data (i32.const 2920) "OPCHAR\00")  ;; 7
+ (global $str_opchar i32 (i32.const 2920))
+ (data (i32.const 2930) "DASH\00")  ;; 5
+ (global $str_dash i32 (i32.const 2930))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -366,7 +374,11 @@
  (global $sym_intern i32 (i32.const 0x02d0))
  (global $sym_numob i32 (i32.const 0x02d8))
  (global $sym_unpack i32 (i32.const 0x02e0))
- (global $primitive_obj_end i32 (i32.const 0x02e8))
+ (global $sym_liter i32 (i32.const 0x02e8))
+ (global $sym_digit i32 (i32.const 0x02f0))
+ (global $sym_opchar i32 (i32.const 0x02f8))
+ (global $sym_dash i32 (i32.const 0x0300))
+ (global $primitive_obj_end i32 (i32.const 0x0308))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -2078,6 +2090,14 @@
              (global.get $idx_numob) (i32.const 0))
        (call $initsymSubr (global.get $sym_unpack) (global.get $str_unpack)
              (global.get $idx_unpack) (i32.const 1))
+       (call $initsymSubr (global.get $sym_liter) (global.get $str_liter)
+             (global.get $idx_liter) (i32.const 1))
+       (call $initsymSubr (global.get $sym_digit) (global.get $str_digit)
+             (global.get $idx_digit) (i32.const 1))
+       (call $initsymSubr (global.get $sym_opchar) (global.get $str_opchar)
+             (global.get $idx_opchar) (i32.const 1))
+       (call $initsymSubr (global.get $sym_dash) (global.get $str_dash)
+             (global.get $idx_dash) (i32.const 1))
 
        ;;; FSUBR
        (call $initsymKv
@@ -2314,6 +2334,14 @@
  (global $idx_numob i32 (i32.const 159))
  (elem (i32.const 160) $subr_unpack)
  (global $idx_unpack i32 (i32.const 160))
+ (elem (i32.const 161) $subr_liter)
+ (global $idx_liter i32 (i32.const 161))
+ (elem (i32.const 162) $subr_digit)
+ (global $idx_digit i32 (i32.const 162))
+ (elem (i32.const 163) $subr_opchar)
+ (global $idx_opchar i32 (i32.const 163))
+ (elem (i32.const 164) $subr_dash)
+ (global $idx_dash i32 (i32.const 164))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -3201,6 +3229,81 @@
              (local.set $pn (call $cdr (local.get $pn)))
              (br $loop)))
         (call $conc (call $nreverse (local.get $ret))))
+
+   (func $subr_liter (result i32)
+       (local $tmp i32)
+       (local $arg1 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set
+        $tmp (call $get (local.get $arg1) (global.get $sym_pname)))
+       (if (i32.eqz (local.get $tmp))
+           ;; TODO: Return the specific error
+           (return (call $makeStrError (global.get $str_err_generic))))
+       (local.set $tmp (call $car (local.get $tmp)))
+       (if (i32.or
+            (i32.and
+             (i32.le_u (i32.const 0x00004102)  ;; 'A' + fixnum tag
+                       (local.get $tmp))
+             (i32.le_u (local.get $tmp)
+                       (i32.const 0x00005a02)))  ;; 'Z' + fixnum tag
+            (i32.and
+             (i32.le_u (i32.const 0x00006102)  ;; 'a' + fixnum tag
+                       (local.get $tmp))
+             (i32.le_u (local.get $tmp)
+                       (i32.const 0x00007a02))))  ;; 'z' + fixnum tag
+           (return (global.get $sym_tstar)))
+       (i32.const 0))
+   (func $subr_digit (result i32)
+       (local $tmp i32)
+       (local $arg1 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set
+        $tmp (call $get (local.get $arg1) (global.get $sym_pname)))
+       (if (i32.eqz (local.get $tmp))
+           ;; TODO: Return the specific error
+           (return (call $makeStrError (global.get $str_err_generic))))
+       (local.set $tmp (call $car (local.get $tmp)))
+       (if (i32.and
+             (i32.le_u (i32.const 0x00003002)  ;; '0' + fixnum tag
+                       (local.get $tmp))
+             (i32.le_u (local.get $tmp)
+                       (i32.const 0x00003902)))  ;; '9' + fixnum tag
+           (return (global.get $sym_tstar)))
+       (i32.const 0))
+   (func $subr_opchar (result i32)
+       (local $tmp i32)
+       (local $arg1 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set
+        $tmp (call $get (local.get $arg1) (global.get $sym_pname)))
+       (if (i32.eqz (local.get $tmp))
+           ;; TODO: Return the specific error
+           (return (call $makeStrError (global.get $str_err_generic))))
+       (local.set $tmp (call $car (local.get $tmp)))
+       (if (i32.eq (local.get $tmp) (i32.const 0x00002b02))  ;; '+'
+           (return (global.get $sym_tstar)))
+       (if (i32.eq (local.get $tmp) (i32.const 0x00002d02))  ;; '-'
+           (return (global.get $sym_tstar)))
+       (if (i32.eq (local.get $tmp) (i32.const 0x00002a02))  ;; '*'
+           (return (global.get $sym_tstar)))
+       (if (i32.eq (local.get $tmp) (i32.const 0x00002f02))  ;; '/'
+           (return (global.get $sym_tstar)))
+       (if (i32.eq (local.get $tmp) (i32.const 0x00003d02))  ;; '='
+           (return (global.get $sym_tstar)))
+       (i32.const 0))
+   (func $subr_dash (result i32)
+       (local $tmp i32)
+       (local $arg1 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set
+        $tmp (call $get (local.get $arg1) (global.get $sym_pname)))
+       (if (i32.eqz (local.get $tmp))
+           ;; TODO: Return the specific error
+           (return (call $makeStrError (global.get $str_err_generic))))
+       (local.set $tmp (call $car (local.get $tmp)))
+       (if (i32.eq (local.get $tmp) (i32.const 0x00002d02))  ;; '-'
+           (return (global.get $sym_tstar)))
+       (i32.const 0))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL
