@@ -345,6 +345,16 @@
            "'(lambda(x) (1+ (car x))) '(lambda (x) x))", "4"],
           ["(search '(a b c d) '(lambda(x) (numberp (car x))) " +
            "'(lambda(x) (1+ (car x))) '(lambda (x) x))", "NIL"],
+          ["(recip 1)", "0"],
+          ["(expt 2 0)", "1"],
+          ["(expt 2 1)", "2"],
+          ["(expt 2 8)", "256"],
+          ["(fixp 1)", "*T*"],
+          ["(fixp t)", "NIL"],
+          ["(floatp 1)", "NIL"],
+          ["(floatp t)", "NIL"],
+          ["(leftshift 3 2)", "12"],
+          ["(leftshift 12 -1)", "6"],
 
           // APVALs
           ["blank", " "],

@@ -315,6 +315,16 @@
  (global $str_map i32 (i32.const 3100))
  (data (i32.const 3110) "SEARCH\00")  ;; 7
  (global $str_search i32 (i32.const 3110))
+ (data (i32.const 3120) "RECIP\00")  ;; 6
+ (global $str_recip i32 (i32.const 3120))
+ (data (i32.const 3130) "EXPT\00")  ;; 5
+ (global $str_expt i32 (i32.const 3130))
+ (data (i32.const 3140) "FIXP\00")  ;; 5
+ (global $str_fixp i32 (i32.const 3140))
+ (data (i32.const 3150) "FLOATP\00")  ;; 7
+ (global $str_floatp i32 (i32.const 3150))
+ (data (i32.const 3160) "LEFTSHIFT\00")  ;; 10
+ (global $str_leftshift i32 (i32.const 3160))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -432,7 +442,12 @@
  (global $sym_mapcon i32 (i32.const 0x0380))
  (global $sym_map i32 (i32.const 0x0388))
  (global $sym_search i32 (i32.const 0x0390))
- (global $primitive_obj_end i32 (i32.const 0x0398))
+ (global $sym_recip i32 (i32.const 0x0398))
+ (global $sym_expt i32 (i32.const 0x03a0))
+ (global $sym_fixp i32 (i32.const 0x03a8))
+ (global $sym_floatp i32 (i32.const 0x03b0))
+ (global $sym_leftshift i32 (i32.const 0x03b8))
+ (global $primitive_obj_end i32 (i32.const 0x03c0))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -2215,6 +2230,17 @@
              (global.get $idx_map) (i32.const 2))
        (call $initsymSubr (global.get $sym_search) (global.get $str_search)
              (global.get $idx_search) (i32.const 4))
+       (call $initsymSubr (global.get $sym_recip) (global.get $str_recip)
+             (global.get $idx_recip) (i32.const 1))
+       (call $initsymSubr (global.get $sym_expt) (global.get $str_expt)
+             (global.get $idx_expt) (i32.const 2))
+       (call $initsymSubr (global.get $sym_fixp) (global.get $str_fixp)
+             (global.get $idx_fixp) (i32.const 1))
+       (call $initsymSubr (global.get $sym_floatp) (global.get $str_floatp)
+             (global.get $idx_floatp) (i32.const 1))
+       (call $initsymSubr (global.get $sym_leftshift)
+             (global.get $str_leftshift)
+             (global.get $idx_leftshift) (i32.const 2))
 
        ;;; FSUBR
        (call $initsymKv
@@ -2497,6 +2523,16 @@
  (global $idx_map i32 (i32.const 181))
  (elem (i32.const 182) $subr_search)
  (global $idx_search i32 (i32.const 182))
+ (elem (i32.const 183) $subr_recip)
+ (global $idx_recip i32 (i32.const 183))
+ (elem (i32.const 184) $subr_expt)
+ (global $idx_expt i32 (i32.const 184))
+ (elem (i32.const 185) $subr_fixp)
+ (global $idx_fixp i32 (i32.const 185))
+ (elem (i32.const 186) $subr_floatp)
+ (global $idx_floatp i32 (i32.const 186))
+ (elem (i32.const 187) $subr_leftshift)
+ (global $idx_leftshift i32 (i32.const 187))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -3722,7 +3758,6 @@
             (br $loop))
          (i32.const 0))
    (func $subr_mapcon (result i32)
-         (call $log (i32.const 999999999))
          (call $conc (call $subr_maplist)))
    (func $subr_map (result i32)
          (local $a i32)
@@ -3789,6 +3824,64 @@
             (local.set $arg1 (call $cdr (local.get $arg1)))
             (br $loop))
          (i32.const 0))
+
+   (func $subr_recip (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         (if (i32.eqz (call $fixnump (local.get $arg1)))
+             (return (call $makeStrError (global.get $str_err_num))))
+         (call $int2fixnum (i32.const 0)))
+
+   (func $subr_expt (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local $x i32)
+         (local $n i32)
+         (local $acc i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (if (i32.eqz (call $fixnump (local.get $arg1)))
+             (return (call $makeStrError (global.get $str_err_num))))
+         (if (i32.eqz (call $fixnump (local.get $arg2)))
+             (return (call $makeStrError (global.get $str_err_num))))
+         (local.set $x (call $fixnum2int (local.get $arg1)))
+         (local.set $n (call $fixnum2int (local.get $arg2)))
+         (local.set $acc (i32.const 1))
+         (loop $loop
+            (if (i32.le_s (local.get $n) (i32.const 0))
+                (return (call $int2fixnum (local.get $acc))))
+            (local.set $acc (i32.mul (local.get $x) (local.get $acc)))
+            (local.set $n (i32.sub (local.get $n) (i32.const 1)))
+            (br $loop))
+         (i32.const 0))
+
+   (func $subr_fixp (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         (if (call $fixnump (local.get $arg1))
+             (return (global.get $sym_tstar)))
+         (i32.const 0))
+
+   (func $subr_floatp (result i32)
+         (i32.const 0))
+
+   (func $subr_leftshift (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (if (i32.eqz (call $fixnump (local.get $arg1)))
+             (return (call $makeStrError (global.get $str_err_num))))
+         (if (i32.eqz (call $fixnump (local.get $arg2)))
+             (return (call $makeStrError (global.get $str_err_num))))
+         (local.set $arg1 (call $fixnum2int (local.get $arg1)))
+         (local.set $arg2 (call $fixnum2int (local.get $arg2)))
+         (if (i32.lt_s (local.get $arg2) (i32.const 0))
+             (return
+               (call $int2fixnum
+                     (i32.shr_s (local.get $arg1)
+                                (i32.mul (local.get $arg2) (i32.const -1))))))
+         (call $int2fixnum (i32.shl (local.get $arg1) (local.get $arg2))))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL
