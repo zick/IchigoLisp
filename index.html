@@ -275,6 +275,16 @@
           ["(null (get 'a 'traceset))", "NIL"],
           ["(untraceset '(a))", "NIL"],
           ["(null (get 'a 'traceset))", "*T*"],
+          ["(clearbuff)", "NIL"],
+          ["(pack 'z)", "NIL"],
+          ["(atom (mknam))", "NIL"],
+          ["(prog()(pack 'z)(pack 'i)(pack 'c)(pack 'k))", "NIL"],
+          ["(intern (mknam))", "ZICK"],
+          ["(prog () (pack dash)(pack 1)(pack 2)(pack 3))", "NIL"],
+          ["(* (numob) 10)", "-1230"],
+          ["(unpack (car (get 'hoge 'pname)))", "(H O G)"],
+          ["(unpack (car (cdr (get 'hoge 'pname))))", "(E)"],
+          ["(unpack 'hoge)", "(H O G E)"],
 
           // APVALs
           ["blank", " "],

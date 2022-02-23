@@ -81,6 +81,8 @@
 
  (global $boffo i32 (i32.const 10240))
  (global $boffop (mut i32) (i32.const 10240))
+ (global $uboffo i32 (i32.const 11264))  ;; boffo + 1024
+ (global $uboffop (mut i32) (i32.const 11264))
  (global $read_start (mut i32) (i32.const 0))
  (global $readp (mut i32) (i32.const 0))
  (global $printp (mut i32) (i32.const 0))
@@ -257,6 +259,18 @@
  (global $str_min i32 (i32.const 2820))
  (data (i32.const 2830) "TRACESET\00")  ;; 9
  (global $str_traceset i32 (i32.const 2830))
+ (data (i32.const 2840) "CLEARBUFF\00")  ;; 10
+ (global $str_clearbuff i32 (i32.const 2840))
+ (data (i32.const 2850) "PACK\00")  ;; 5
+ (global $str_pack i32 (i32.const 2850))
+ (data (i32.const 2860) "MKNAM\00")  ;; 6
+ (global $str_mknam i32 (i32.const 2860))
+ (data (i32.const 2870) "INTERN\00")  ;; 7
+ (global $str_intern i32 (i32.const 2870))
+ (data (i32.const 2880) "NUMOB\00")  ;; 6
+ (global $str_numob i32 (i32.const 2880))
+ (data (i32.const 2890) "UNPACK\00")  ;; 7
+ (global $str_unpack i32 (i32.const 2890))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -346,7 +360,13 @@
  (global $sym_max i32 (i32.const 0x02a0))
  (global $sym_min i32 (i32.const 0x02a8))
  (global $sym_traceset i32 (i32.const 0x02b0))
- (global $primitive_obj_end i32 (i32.const 0x02b8))
+ (global $sym_clearbuff i32 (i32.const 0x02b8))
+ (global $sym_pack i32 (i32.const 0x02c0))
+ (global $sym_mknam i32 (i32.const 0x02c8))
+ (global $sym_intern i32 (i32.const 0x02d0))
+ (global $sym_numob i32 (i32.const 0x02d8))
+ (global $sym_unpack i32 (i32.const 0x02e0))
+ (global $primitive_obj_end i32 (i32.const 0x02e8))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -536,6 +556,63 @@
                     (local.set $ret (i32.const 2))
                     (local.set $ret (i32.const 3)))))))
       (local.get $ret))
+
+ ;;; Returns a list of name1 that contains only 1 character.
+ (func $unpackn1 (param $n1 i32) (result i32)
+       (local $name i32)
+       (local $sym i32)
+       (local $ret i32)
+       ;; If n1 contains 0 character, return NIL.
+       (if (i32.eqz (i32.and (local.get $n1) (i32.const 0x0000ff00)))
+           (return (i32.const 0)))
+       (local.set $name (call
+                         $cons
+                         (i32.and (local.get $n1) (i32.const 0x0000ffff))
+                         (i32.const 0)))
+       (call $push (local.get $name))  ;; For GC (name)
+       (local.set $sym (call $makeSymFromName (local.get $name)))
+       (call $drop (call $pop))  ;; For GC ()
+       (call $push (local.get $sym))  ;; For GC (sym)
+       (local.set $ret (call $cons (local.get $sym) (i32.const 0)))
+       (call $drop (call $pop))  ;; For GC ()
+       ;; If n1 contains 1 character, return a cons cell.
+       (if (i32.eqz (i32.and (local.get $n1) (i32.const 0x00ff0000)))
+           (return (local.get $ret)))
+       (call $push (local.get $ret))  ;; For GC (ret)
+       (local.set $name (call
+                         $cons
+                         (i32.add
+                          (i32.and (i32.shr_u (local.get $n1) (i32.const 8))
+                                   (i32.const 0x0000ff00))
+                          (i32.const 2))
+                         (i32.const 0)))
+       (call $push (local.get $name))  ;; For GC (ret, name)
+       (local.set $sym (call $makeSymFromName (local.get $name)))
+       (call $drop (call $pop))  ;; For GC (ret)
+       (call $push (local.get $sym))  ;; For GC (ret, sym)
+       (local.set $ret (call $cons (local.get $sym) (local.get $ret)))
+       (call $drop (call $pop))  ;; For GC (ret)
+       (call $drop (call $pop))  ;; For GC ()
+       ;; If n1 contains 2 characters, return 2 cons cells.
+       (if (i32.eqz (i32.and (local.get $n1) (i32.const 0xff000000)))
+           (return (call $nreverse (local.get $ret))))
+       ;; Otherwise, return 3 cons cells.
+       (call $push (local.get $ret))  ;; For GC (ret)
+       (local.set $name (call
+                         $cons
+                         (i32.add
+                          (i32.and (i32.shr_u (local.get $n1) (i32.const 16))
+                                   (i32.const 0x0000ff00))
+                          (i32.const 2))
+                         (i32.const 0)))
+       (call $push (local.get $name))  ;; For GC (ret, name)
+       (local.set $sym (call $makeSymFromName (local.get $name)))
+       (call $drop (call $pop))  ;; For GC (ret)
+       (call $push (local.get $sym))  ;; For GC (ret, sym)
+       (local.set $ret (call $cons (local.get $sym) (local.get $ret)))
+       (call $drop (call $pop))  ;; For GC (ret)
+       (call $drop (call $pop))  ;; For GC ()
+       (call $nreverse (local.get $ret)))
 
  ;;; Returns a list of fixnums representing packed characters.
  (func $makename (param $str i32) (result i32)
@@ -730,6 +807,24 @@
            (call $setcdr (local.get $lst) (local.get $elm)))
        (local.get $ret))
 
+ (func $conc (param $lst i32) (result i32)
+       (local $ret i32)
+       (if (i32.eqz (local.get $lst))
+           (return (i32.const 0)))
+       (if (i32.eqz (call $cdr (local.get $lst)))
+           (return (call $car (local.get $lst))))
+       (local.set $ret (call $car (local.get $lst)))
+       (local.set $lst (call $cdr (local.get $lst)))
+       (loop $loop
+          (if (i32.eqz (local.get $lst))
+              (return (local.get $ret)))
+          (local.set
+           $ret
+           (call $nconc (local.get $ret) (call $car (local.get $lst))))
+          (local.set $lst (call $cdr (local.get $lst)))
+          (br $loop))
+       (i32.const 0))
+
  (func $assoc (param $key i32) (param $alist i32) (result i32)
        (block $block
          (loop $loop
@@ -860,7 +955,7 @@
             (br $loop)))
        (local.get $ret))
 
- ;; Makes a new symbol from BOFFO
+ ;;; Makes a new symbol from BOFFO
  (func $makeNewSym (result i32)
        (local $sym i32)
        (local $cell i32)
@@ -876,7 +971,7 @@
        (call $pushToOblist (local.get $sym))
        (local.get $sym))
 
- ;; Returns an existing symbol or makes a symbol from BOFFO.
+ ;;; Returns an existing symbol or makes a symbol from BOFFO.
  (func $makeSym (result i32)
        (local $cell i32)
        (local $sym i32)
@@ -892,6 +987,34 @@
             (br_if $loop (i32.ne (local.get $cell) (i32.const 0)))))
        (if (i32.eqz (local.get $cell))
            (local.set $sym (call $makeNewSym)))
+       (local.get $sym))
+
+ ;;; Returns a symbol from name.
+ (func $makeSymFromName (param $name i32) (result i32)
+       (local $cell i32)
+       (local $sym i32)
+       (local.set $cell (global.get $oblist))
+       (block $block
+         (loop $loop
+            (local.set $sym (call $car (local.get $cell)))
+            (if (call $equal
+                      (call $get (local.get $sym) (global.get $sym_pname))
+                      (local.get $name))
+                (br $block))
+            (local.set $cell (call $cdr (local.get $cell)))
+            (br_if $loop (i32.ne (local.get $cell) (i32.const 0)))))
+       (if (i32.eqz (local.get $cell))
+           (then
+            (local.set
+             $sym (call $cons (global.get $tag_symbol) (i32.const 0)))
+            (call $push (local.get $sym))  ;; For GC (sym)
+            (local.set $cell (call $cons (local.get $name) (i32.const 0)))
+            (call $setcdr (local.get $sym) (local.get $cell))  ;; For GC
+            (local.set
+             $cell (call $cons (global.get $sym_pname) (local.get $cell)))
+            (call $setcdr (local.get $sym) (local.get $cell))
+            (call $drop (call $pop))  ;; For GC ()
+            (call $pushToOblist (local.get $sym))))
        (local.get $sym))
 
  (func $makeNum (param $n i32) (result i32)
@@ -1942,6 +2065,19 @@
              (global.get $idx_endread) (i32.const 0))
        (call $initsymSubr (global.get $sym_nconc) (global.get $str_nconc)
              (global.get $idx_nconc) (i32.const 2))
+       (call $initsymSubr (global.get $sym_clearbuff)
+             (global.get $str_clearbuff)
+             (global.get $idx_clearbuff) (i32.const 0))
+       (call $initsymSubr (global.get $sym_pack) (global.get $str_pack)
+             (global.get $idx_pack) (i32.const 1))
+       (call $initsymSubr (global.get $sym_mknam) (global.get $str_mknam)
+             (global.get $idx_mknam) (i32.const 0))
+       (call $initsymSubr (global.get $sym_intern) (global.get $str_intern)
+             (global.get $idx_intern) (i32.const 1))
+       (call $initsymSubr (global.get $sym_numob) (global.get $str_numob)
+             (global.get $idx_numob) (i32.const 0))
+       (call $initsymSubr (global.get $sym_unpack) (global.get $str_unpack)
+             (global.get $idx_unpack) (i32.const 1))
 
        ;;; FSUBR
        (call $initsymKv
@@ -2166,6 +2302,18 @@
  (global $idx_max i32 (i32.const 153))
  (elem (i32.const 154) $fsubr_min)
  (global $idx_min i32 (i32.const 154))
+ (elem (i32.const 155) $subr_clearbuff)
+ (global $idx_clearbuff i32 (i32.const 155))
+ (elem (i32.const 156) $subr_pack)
+ (global $idx_pack i32 (i32.const 156))
+ (elem (i32.const 157) $subr_mknam)
+ (global $idx_mknam i32 (i32.const 157))
+ (elem (i32.const 158) $subr_intern)
+ (global $idx_intern i32 (i32.const 158))
+ (elem (i32.const 159) $subr_numob)
+ (global $idx_numob i32 (i32.const 159))
+ (elem (i32.const 160) $subr_unpack)
+ (global $idx_unpack i32 (i32.const 160))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -2931,6 +3079,128 @@
             (br $loop)))
        (call $setcdr (local.get $arg1) (local.get $arg2))
        (local.get $ret))
+
+  (func $subr_clearbuff (result i32)
+        (global.set $uboffop (global.get $uboffo))
+        (i32.const 0))
+  (func $subr_pack (result i32)
+        (local $arg1 i32)
+        (local $tmp i32)
+        (local.set $arg1 (call $getArg1))
+        (call $log (local.get $arg1))
+        (if (i32.and (call $fixnump (local.get $arg1))
+                     (i32.ge_s (local.get $arg1) (i32.const 0)))
+            (then
+             ;; Convert a number to a digit character.
+             (local.set $tmp (call $fixnum2int (local.get $arg1)))
+             (local.set $tmp (i32.add
+                              (i32.const 48)  ;; '0'
+                              (i32.rem_s (local.get $tmp) (i32.const 10)))))
+            (else
+             (local.set
+              $tmp (call $get (local.get $arg1) (global.get $sym_pname)))
+             (if (i32.eqz (local.get $tmp))
+                 ;; TODO: Return the specific error
+                 (return (call $makeStrError (global.get $str_err_generic))))
+             ;; Get the first character.
+             (local.set $tmp (call $car (local.get $tmp)))
+             (local.set
+              $tmp (i32.and (i32.shr_u (local.get $tmp) (i32.const 8))
+                            (i32.const 0x000000ff)))))
+        ;; Copy to uboffo.
+        (i32.store8 (global.get $uboffop) (local.get $tmp))
+        (global.set $uboffop (i32.add (global.get $uboffop) (i32.const 1)))
+        (i32.store8 (global.get $uboffop) (i32.const 0))
+        (i32.const 0))
+  (func $subr_mknam (result i32)
+        (local $ret i32)
+        (local.set $ret (call $makename (global.get $uboffo)))
+        (global.set $uboffop (global.get $uboffo))
+        (local.get $ret))
+  (func $subr_intern (result i32)
+        (local $cell i32)
+        (local $sym i32)
+        (local $arg1 i32)
+        (local.set $arg1 (call $getArg1))  ;; name like (name1 name1 ...)
+        (local.set $cell (global.get $oblist))
+        (block $block
+          (loop $loop
+             (local.set $sym (call $car (local.get $cell)))
+             (if (call $equal
+                       (call $get (local.get $sym) (global.get $sym_pname))
+                       (local.get $arg1))
+                 (br $block))
+             (local.set $cell (call $cdr (local.get $cell)))
+             (br_if $loop (i32.ne (local.get $cell) (i32.const 0)))))
+        (if (i32.eqz (local.get $cell))
+            (then
+             (local.set
+              $sym (call $cons (global.get $tag_symbol) (i32.const 0)))
+             (call $push (local.get $sym))  ;; For GC (sym)
+             (local.set $cell (call $cons (local.get $arg1) (i32.const 0)))
+             (call $setcdr (local.get $sym) (local.get $cell))  ;; For GC
+             (local.set
+              $cell (call $cons (global.get $sym_pname) (local.get $cell)))
+             (call $setcdr (local.get $sym) (local.get $cell))
+             (call $drop (call $pop))  ;; For GC ()
+             (call $pushToOblist (local.get $sym))))
+        (local.get $sym))
+  (func $subr_numob (result i32)
+          (local $c i32)
+        (local $sign i32)
+        (local $num i32)
+        (local.set $sign (i32.const 1))
+        (local.set $num (i32.const 0))
+        (global.set $uboffop (global.get $uboffo))
+        (local.set $c (i32.load8_u (global.get $uboffop)))
+        (if (i32.eq (local.get $c) (i32.const 45))  ;; '-'
+            (then
+             (local.set $sign (i32.const -1))
+             (global.set
+              $uboffop (i32.add (global.get $uboffop) (i32.const 1)))
+             (local.set $c (i32.load8_u (global.get $uboffop)))))
+        (block $block
+          (loop $loop
+             (br_if $block (i32.eqz (local.get $c)))
+             (if (i32.and  ;; '0' <= c && c <= '9'
+                  (i32.le_u (i32.const 48) (local.get $c))
+                  (i32.le_u (local.get $c) (i32.const 57)))
+                 (local.set $num
+                            (i32.add (i32.mul (local.get $num) (i32.const 10))
+                                     (i32.sub (local.get $c) (i32.const 48))))
+                 (br $block))
+            (global.set $uboffop (i32.add (global.get $uboffop) (i32.const 1)))
+            (local.set $c (i32.load8_u (global.get $uboffop)))
+            (br $loop)))
+        (global.set $uboffop (global.get $uboffo))
+        (call $int2fixnum (i32.mul (local.get $num) (local.get $sign))))
+  (func $subr_unpack (result i32)
+        (local $arg1 i32)
+        (local $lst i32)
+        (local $pn i32)
+        (local $nm i32)
+        (local $ret i32)
+        (local.set $arg1 (call $getArg1))  ;; name1 or symbol
+        (if (call $fixnump (local.get $arg1))
+            (return (call $unpackn1 (local.get $arg1))))
+        (local.set
+         $pn (call $get (local.get $arg1) (global.get $sym_pname)))
+        (if (i32.eqz (local.get $pn))
+            ;; TODO: Return the specific error
+            (return (call $makeStrError (global.get $str_err_generic))))
+        (local.set $ret (i32.const 0))
+        (block $block
+          (loop $loop
+             (br_if $block (i32.eqz (local.get $pn)))
+             (call $push (local.get $ret))  ;; For GC (ret)
+             (local.set $nm (call $unpackn1 (call $car (local.get $pn))))
+             (call $push (local.get $nm))  ;; For GC (ret, nm)
+             (local.set $ret (call $cons (local.get $nm) (local.get $ret)))
+             (call $drop (call $pop))  ;; For GC (ret)
+             (call $drop (call $pop))  ;; For GC ()
+             (local.set $pn (call $cdr (local.get $pn)))
+             (br $loop)))
+        (call $conc (call $nreverse (local.get $ret))))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL
