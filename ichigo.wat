@@ -295,6 +295,26 @@
  (global $str_pair i32 (i32.const 3000))
  (data (i32.const 3010) "SASSOC\00")  ;; 7
  (global $str_sassoc i32 (i32.const 3010))
+ (data (i32.const 3020) "SUBST\00")  ;; 6
+ (global $str_subst i32 (i32.const 3020))
+ (data (i32.const 3030) "SUBLIS\00")  ;; 7
+ (global $str_sublis i32 (i32.const 3030))
+ (data (i32.const 3040) "REVERSE\00")  ;; 8
+ (global $str_reverse i32 (i32.const 3040))
+ (data (i32.const 3050) "MEMBER\00")  ;; 7
+ (global $str_member i32 (i32.const 3050))
+ (data (i32.const 3060) "LENGTH\00")  ;; 7
+ (global $str_length i32 (i32.const 3060))
+ (data (i32.const 3070) "EFFACE\00")  ;; 7
+ (global $str_efface i32 (i32.const 3070))
+ (data (i32.const 3080) "MAPLIST\00")  ;; 8
+ (global $str_maplist i32 (i32.const 3080))
+ (data (i32.const 3090) "MAPCON\00")  ;; 7
+ (global $str_mapcon i32 (i32.const 3090))
+ (data (i32.const 3100) "MAP\00")  ;; 4
+ (global $str_map i32 (i32.const 3100))
+ (data (i32.const 3110) "SEARCH\00")  ;; 7
+ (global $str_search i32 (i32.const 3110))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -402,7 +422,17 @@
  (global $sym_remprop i32 (i32.const 0x0330))
  (global $sym_pair i32 (i32.const 0x0338))
  (global $sym_sassoc i32 (i32.const 0x0340))
- (global $primitive_obj_end i32 (i32.const 0x0348))
+ (global $sym_subst i32 (i32.const 0x0348))
+ (global $sym_sublis i32 (i32.const 0x0350))
+ (global $sym_reverse i32 (i32.const 0x0358))
+ (global $sym_member i32 (i32.const 0x0360))
+ (global $sym_length i32 (i32.const 0x0368))
+ (global $sym_efface i32 (i32.const 0x0370))
+ (global $sym_maplist i32 (i32.const 0x0378))
+ (global $sym_mapcon i32 (i32.const 0x0380))
+ (global $sym_map i32 (i32.const 0x0388))
+ (global $sym_search i32 (i32.const 0x0390))
+ (global $primitive_obj_end i32 (i32.const 0x0398))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -508,8 +538,12 @@
        (i32.load (local.get $cell)))
  (func $cdr (param $cell i32) (result i32)
        (i32.load (i32.add (local.get $cell) (i32.const 4))))
+ (func $caar (param $cell i32) (result i32)
+       (call $car (call $car (local.get $cell))))
  (func $cadr (param $cell i32) (result i32)
        (call $car (call $cdr (local.get $cell))))
+ (func $cdar (param $cell i32) (result i32)
+       (call $cdr (call $car (local.get $cell))))
  (func $cddr (param $cell i32) (result i32)
        (call $cdr (call $cdr (local.get $cell))))
  (func $caddr (param $cell i32) (result i32)
@@ -2161,6 +2195,26 @@
              (global.get $idx_pair) (i32.const 2))
        (call $initsymSubr (global.get $sym_sassoc) (global.get $str_sassoc)
              (global.get $idx_sassoc) (i32.const 3))
+       (call $initsymSubr (global.get $sym_subst) (global.get $str_subst)
+             (global.get $idx_subst) (i32.const 3))
+       (call $initsymSubr (global.get $sym_sublis) (global.get $str_sublis)
+             (global.get $idx_sublis) (i32.const 2))
+       (call $initsymSubr (global.get $sym_reverse) (global.get $str_reverse)
+             (global.get $idx_reverse) (i32.const 1))
+       (call $initsymSubr (global.get $sym_member) (global.get $str_member)
+             (global.get $idx_member) (i32.const 2))
+       (call $initsymSubr (global.get $sym_length) (global.get $str_length)
+             (global.get $idx_length) (i32.const 1))
+       (call $initsymSubr (global.get $sym_efface) (global.get $str_efface)
+             (global.get $idx_efface) (i32.const 2))
+       (call $initsymSubr (global.get $sym_maplist) (global.get $str_maplist)
+             (global.get $idx_maplist) (i32.const 2))
+       (call $initsymSubr (global.get $sym_mapcon) (global.get $str_mapcon)
+             (global.get $idx_mapcon) (i32.const 2))
+       (call $initsymSubr (global.get $sym_map) (global.get $str_map)
+             (global.get $idx_map) (i32.const 2))
+       (call $initsymSubr (global.get $sym_search) (global.get $str_search)
+             (global.get $idx_search) (i32.const 4))
 
        ;;; FSUBR
        (call $initsymKv
@@ -2264,8 +2318,10 @@
       (i32.load (i32.sub (global.get $sp) (i32.const 12))))
  (func $getArg3 (result i32)
       (i32.load (i32.sub (global.get $sp) (i32.const 8))))
- (func $getArg4 (result i32)
+ (func $getArgRest (result i32)
       (i32.load (i32.sub (global.get $sp) (i32.const 4))))
+ (func $getArg4 (result i32)
+      (call $safecar (call $getArgRest)))
  (func $getAArgInSubr (result i32)
       (i32.load (i32.sub (global.get $sp) (i32.const 20))))
 
@@ -2421,6 +2477,26 @@
  (global $idx_pair i32 (i32.const 171))
  (elem (i32.const 172) $subr_sassoc)
  (global $idx_sassoc i32 (i32.const 172))
+ (elem (i32.const 173) $subr_subst)
+ (global $idx_subst i32 (i32.const 173))
+ (elem (i32.const 174) $subr_sublis)
+ (global $idx_sublis i32 (i32.const 174))
+ (elem (i32.const 175) $subr_reverse)
+ (global $idx_reverse i32 (i32.const 175))
+ (elem (i32.const 176) $subr_member)
+ (global $idx_member i32 (i32.const 176))
+ (elem (i32.const 177) $subr_length)
+ (global $idx_length i32 (i32.const 177))
+ (elem (i32.const 178) $subr_efface)
+ (global $idx_efface i32 (i32.const 178))
+ (elem (i32.const 179) $subr_maplist)
+ (global $idx_maplist i32 (i32.const 179))
+ (elem (i32.const 180) $subr_mapcon)
+ (global $idx_mapcon i32 (i32.const 180))
+ (elem (i32.const 181) $subr_map)
+ (global $idx_map i32 (i32.const 181))
+ (elem (i32.const 182) $subr_search)
+ (global $idx_search i32 (i32.const 182))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -3500,6 +3576,219 @@
                            (call $cons (local.get $arg3) (i32.const 0)))
                      (local.get $a))))
          (local.get $ret))
+
+   (func $subst (param $x i32) (param $y i32) (param $z i32) (result i32)
+         (local $left i32)
+         (local $right i32)
+         (local $ret i32)
+         (if (call $equal (local.get $y) (local.get $z))
+             (return (local.get $x)))
+         (if (i32.eqz (call $consp (local.get $z)))
+             (return (local.get $z)))
+         (local.set $left (call $subst (local.get $x) (local.get $y)
+                                (call $car (local.get $z))))
+         (call $push (local.get $left))  ;; For GC (left)
+         (local.set $right (call $subst (local.get $x) (local.get $y)
+                                 (call $cdr (local.get $z))))
+         (call $push (local.get $right))  ;; For GC (left, right)
+         (local.set $ret (call $cons (local.get $left) (local.get $right)))
+         (call $drop (call $pop))  ;; For GC (left)
+         (call $drop (call $pop))  ;; For GC ()
+         (local.get $ret))
+   (func $subr_subst (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local $arg3 i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (local.set $arg3 (call $getArg3))
+         (call $subst (local.get $arg1) (local.get $arg2) (local.get $arg3)))
+
+   (func $sublis2 (param $x i32) (param $y i32) (result i32)
+         (loop $loop
+            (if (i32.eqz (local.get $x))
+                (return (local.get $y)))
+            (if (i32.eq (call $caar (local.get $x)) (local.get $y))
+                (return (call $cdar (local.get $x))))
+            (local.set $x (call $cdr (local.get $x)))
+            (br $loop))
+         (i32.const 0))
+   (func $sublis (param $x i32) (param $y i32) (result i32)
+         (local $left i32)
+         (local $right i32)
+         (local $ret i32)
+         (if (i32.eqz (call $consp (local.get $y)))
+             (return (call $sublis2 (local.get $x) (local.get $y))))
+         (local.set
+          $left (call $sublis (local.get $x) (call $car (local.get $y))))
+         (call $push (local.get $left))  ;; For GC (left)
+         (local.set
+          $right (call $sublis (local.get $x) (call $cdr (local.get $y))))
+         (call $push (local.get $right))  ;; For GC (left, right)
+         (local.set
+          $ret (call $cons (local.get $left) (local.get $right)))
+         (call $drop (call $pop))  ;; For GC (left)
+         (call $drop (call $pop))  ;; For GC ()
+         (local.get $ret))
+
+   (func $subr_sublis (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (call $sublis (local.get $arg1) (local.get $arg2)))
+
+   (func $subr_reverse (result i32)
+         (local $arg1 i32)
+         (local $ret i32)
+         (local.set $arg1 (call $getArg1))
+         (loop $loop
+            (if (i32.eqz (local.get $arg1))
+                (return (local.get $ret)))
+            (call $push (local.get $ret))  ;; For GC (ret)
+            (local.set
+             $ret (call $cons (call $car (local.get $arg1)) (local.get $ret)))
+            (local.set $arg1 (call $cdr (local.get $arg1)))
+            (br $loop))
+         (i32.const 0))
+
+   (func $subr_member (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (call $member (local.get $arg1) (local.get $arg2)))
+
+   (func $subr_length (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         (call $int2fixnum (call $length (local.get $arg1))))
+
+   (func $subr_efface (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local $ret i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         ;; Find the first element which is not arg1.
+         (block $block1
+           (loop $loop1
+              (if (i32.eqz (local.get $arg2))
+                  (return (i32.const 0)))
+              (if (i32.ne (local.get $arg1) (call $car (local.get $arg2)))
+                  (br $block1))
+              (local.set $arg2 (call $cdr (local.get $arg2)))
+              (br $loop1)))
+         (local.set $ret (local.get $arg2))
+         (loop $loop2
+            (if (i32.eqz (call $cdr (local.get $arg2)))
+                (return (local.get $ret)))
+            (if (i32.eq (call $cadr (local.get $arg2)) (local.get $arg1))
+                (call $setcdr (local.get $arg2)
+                      (call $cddr (local.get $arg2)))
+                ;; Don't take CDR when deleting an element.
+                (local.set $arg2 (call $cdr (local.get $arg2))))
+            (br $loop2))
+         (i32.const 0))
+
+   (func $subr_maplist (result i32)
+         (local $a i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local $ret i32)
+         (local $val i32)
+         (local.set $a (call $getAArgInSubr))
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (local.set $ret (i32.const 0))
+         (loop $loop
+            (if (i32.eqz (local.get $arg1))
+                (return (call $nreverse (local.get $ret))))
+            (call $push (local.get $ret))  ;; For GC (ret)
+            (local.set $val
+                       (call $eval
+                             (call $makeCatchableError
+                                   (global.get $ce_apply)
+                                   (call $list2 (local.get $arg2)
+                                         (local.get $arg1)))
+                             (local.get $a)))
+            (call $push (local.get $val))  ;; For GC (ret, val)
+            (local.set $ret (call $cons (local.get $val) (local.get $ret)))
+            (call $drop (call $pop))  ;; For GC (ret)
+            (call $drop (call $pop))  ;; For GC ()
+            (if (call $errorp (local.get $val))
+                (return (local.get $val)))
+            (local.set $arg1 (call $cdr (local.get $arg1)))
+            (br $loop))
+         (i32.const 0))
+   (func $subr_mapcon (result i32)
+         (call $log (i32.const 999999999))
+         (call $conc (call $subr_maplist)))
+   (func $subr_map (result i32)
+         (local $a i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local $val i32)
+         (local.set $a (call $getAArgInSubr))
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (loop $loop
+            (if (i32.eqz (local.get $arg1))
+                (return (i32.const 0)))
+            (local.set
+             $val (call $eval
+                        (call $makeCatchableError
+                              (global.get $ce_apply)
+                              (call $list2 (local.get $arg2)
+                                    (local.get $arg1)))
+                        (local.get $a)))
+            (if (call $errorp (local.get $val))
+                (return (local.get $val)))
+            (local.set $arg1 (call $cdr (local.get $arg1)))
+            (br $loop))
+         (i32.const 0))
+
+   (func $subr_search (result i32)
+         (local $a i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local $arg3 i32)
+         (local $arg4 i32)
+         (local $val i32)
+         (local.set $a (call $getAArgInSubr))
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (local.set $arg3 (call $getArg3))
+         (local.set $arg4 (call $getArg4))
+         (loop $loop
+            (if (i32.eqz (local.get $arg1))
+                (return
+                  (call $eval
+                        (call $makeCatchableError
+                              (global.get $ce_apply)
+                              (call $list2 (local.get $arg4)
+                                    (i32.const 0)))
+                        (local.get $a))))
+            (local.set
+             $val (call $eval
+                        (call $makeCatchableError
+                              (global.get $ce_apply)
+                              (call $list2 (local.get $arg2)
+                                    (local.get $arg1)))
+                        (local.get $a)))
+            (if (call $errorp (local.get $val))
+                (return (local.get $val)))
+            (if (i32.ne (local.get $val) (i32.const 0))
+                (return
+                  (call $eval
+                        (call $makeCatchableError
+                              (global.get $ce_apply)
+                              (call $list2 (local.get $arg3)
+                                    (local.get $arg1)))
+                        (local.get $a))))
+            (local.set $arg1 (call $cdr (local.get $arg1)))
+            (br $loop))
+         (i32.const 0))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL

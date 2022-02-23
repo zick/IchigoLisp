@@ -326,6 +326,25 @@
           ["(pair '(a b) '(1 2))", "((B . 2) (A . 1))"],
           ["(sassoc 'b '((a 1)(b 2)(c 3)) '+)", "(B 2)"],
           ["(sassoc 'd '((a 1)(b 2)(c 3)) '+)", "0"],
+          ["(subst 'ichigo 15 '(14 (15 15) 14 . 15))",
+           "(14 (ICHIGO ICHIGO) 14 . ICHIGO)"],
+          ["(sublis '((x . ichigo) (y . 15)) '(x is y))", "(ICHIGO IS 15)"],
+          ["(reverse '(a (b . d) c))", "(C (B . D) A)"],
+          ["(member 'b '(a b c))", "(B C)"],
+          ["(member 'd '(a b c))", "NIL"],
+          ["(length nil)", "0"],
+          ["(length '(a (b c) d))", "3"],
+          ["(efface 0 '(1 2 3))", "(1 2 3)"],
+          ["(efface 2 '(2 2 3 2 2 4 2))", "(3 4)"],
+          ["(maplist '(1 2 3) 'length)", "(3 2 1)"],
+          ["(maplist '(1 2 3) '(lambda(x)(1+ (car x))))", "(2 3 4)"],
+          ["(mapcon '(1 2 3) '(lambda(x)(list (car x) (car x))))",
+           "(1 1 2 2 3 3)"],
+          ["(map '(1 2 3) 'length)", "NIL"],
+          ["(search '(a b 3 d) '(lambda(x) (numberp (car x))) " +
+           "'(lambda(x) (1+ (car x))) '(lambda (x) x))", "4"],
+          ["(search '(a b c d) '(lambda(x) (numberp (car x))) " +
+           "'(lambda(x) (1+ (car x))) '(lambda (x) x))", "NIL"],
 
           // APVALs
           ["blank", " "],
@@ -349,6 +368,7 @@
           ["t", "*T*"],
           ["*t*", "*T*"],
 
+          // Errors
           ["", /R4/],
           ["(", /R4/],
           ["((", /R4/],
@@ -387,6 +407,7 @@
           ["(max 1 ub 3)", /A8/],
           ["(max 1 'a 3)", /I3/],
           ["(conc (list 1) ub (list 3))", /A8/],
+          ["(maplist '(1 2 3) '(lambda(x) ub))", /A8/],
       ];
       function runTest() {
           var num_pass = 0, num_fail = 0;
