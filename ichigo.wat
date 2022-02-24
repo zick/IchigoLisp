@@ -651,15 +651,21 @@
             $cons_count (i32.add (global.get $cons_count) (i32.const 1))))
        (local.get $ret))
 
-  ;; TODO: Push `a` and `d` to simplify GC related code.
  (func $cons (param $a i32) (param $d i32) (result i32)
-      (local $cell i32)
-      (local.set $cell (call $rawcons))
-      (if (call $errorp (local.get $cell))
-          (return (local.get $cell)))
-      (call $setcar (local.get $cell) (local.get $a))
-      (call $setcdr (local.get $cell) (local.get $d))
-      (local.get $cell))
+       (local $cell i32)
+       (call $push (local.get $a))  ;; For GC (a)
+       (call $push (local.get $d))  ;; For GC (a d)
+       (local.set $cell (call $rawcons))
+       (if (call $errorp (local.get $cell))
+           (then
+            (call $drop (call $pop))  ;; For GC (a)
+            (call $drop (call $pop))  ;; For GC ()
+            (return (local.get $cell))))
+       (call $setcar (local.get $cell) (local.get $a))
+       (call $setcdr (local.get $cell) (local.get $d))
+       (call $drop (call $pop))  ;; For GC (a)
+       (call $drop (call $pop))  ;; For GC ()
+       (local.get $cell))
 
  ;;; Returns a fixnum representing a packed characters from a string.
  (func $makename1 (param $str i32) (result i32)
@@ -709,9 +715,7 @@
        (call $push (local.get $name))  ;; For GC (name)
        (local.set $sym (call $makeSymFromName (local.get $name)))
        (call $drop (call $pop))  ;; For GC ()
-       (call $push (local.get $sym))  ;; For GC (sym)
        (local.set $ret (call $cons (local.get $sym) (i32.const 0)))
-       (call $drop (call $pop))  ;; For GC ()
        ;; If n1 contains 1 character, return a cons cell.
        (if (i32.eqz (i32.and (local.get $n1) (i32.const 0x00ff0000)))
            (return (local.get $ret)))
@@ -723,13 +727,11 @@
                                    (i32.const 0x0000ff00))
                           (i32.const 2))
                          (i32.const 0)))
-       (call $push (local.get $name))  ;; For GC (ret, name)
+       (call $push (local.get $name))  ;; For GC (ret name)
        (local.set $sym (call $makeSymFromName (local.get $name)))
        (call $drop (call $pop))  ;; For GC (ret)
-       (call $push (local.get $sym))  ;; For GC (ret, sym)
-       (local.set $ret (call $cons (local.get $sym) (local.get $ret)))
-       (call $drop (call $pop))  ;; For GC (ret)
        (call $drop (call $pop))  ;; For GC ()
+       (local.set $ret (call $cons (local.get $sym) (local.get $ret)))
        ;; If n1 contains 2 characters, return 2 cons cells.
        (if (i32.eqz (i32.and (local.get $n1) (i32.const 0xff000000)))
            (return (call $nreverse (local.get $ret))))
@@ -742,13 +744,11 @@
                                    (i32.const 0x0000ff00))
                           (i32.const 2))
                          (i32.const 0)))
-       (call $push (local.get $name))  ;; For GC (ret, name)
+       (call $push (local.get $name))  ;; For GC (ret name)
        (local.set $sym (call $makeSymFromName (local.get $name)))
        (call $drop (call $pop))  ;; For GC (ret)
-       (call $push (local.get $sym))  ;; For GC (ret, sym)
-       (local.set $ret (call $cons (local.get $sym) (local.get $ret)))
-       (call $drop (call $pop))  ;; For GC (ret)
        (call $drop (call $pop))  ;; For GC ()
+       (local.set $ret (call $cons (local.get $sym) (local.get $ret)))
        (call $nreverse (local.get $ret)))
 
  ;;; Returns a list of fixnums representing packed characters.
@@ -769,7 +769,7 @@
                 (call $cons (local.get $name1) (i32.const 0)))
                (if (i32.eqz (local.get $ret))
                    (then
-                    (call $push (local.get $cell))  ;; For GC
+                    (call $push (local.get $cell))  ;; For GC (cell)
                     (local.set $ret (local.get $cell)))
                    (else
                     (call $setcdr (local.get $cur) (local.get $cell))))
@@ -777,7 +777,7 @@
           (local.set $str (i32.add (local.get $str) (i32.const 3)))
           (br_if $loop (i32.eq (local.get $size) (i32.const 3))))
        (if (i32.ne (local.get $ret) (i32.const 0))
-           (call $drop (call $pop)))  ;; For GC
+           (call $drop (call $pop)))  ;; For GC ()
        (local.get $ret))
 
  ;;; Outputs a fixnum representing a packed characters to `printp`.
@@ -999,11 +999,9 @@
            (then
             (local.set $p
                        (call $cons (i32.const 0) (call $cdr (local.get $obj))))
-            (call $push (local.get $p))  ;; For GC
             (call $setcdr
                   (local.get $obj)
-                  (call $cons (local.get $key) (local.get $p)))
-            (call $drop (call $pop))))  ;; For GC
+                  (call $cons (local.get $key) (local.get $p)))))
        (call $setcar (local.get $p) (local.get $val)))
 
  (func $remprop (param $obj i32) (param $key i32)
@@ -1097,17 +1095,13 @@
  (func $list2 (param $e1 i32) (param $e2 i32) (result i32)
        (local $tmp i32)
        (local.set $tmp (call $cons (local.get $e2) (i32.const 0)))
-       (call $push (local.get $tmp))  ;; For GC (tmp)
        (local.set $tmp (call $cons (local.get $e1) (local.get $tmp)))
-       (call $drop (call $pop))  ;; For GC ()
        (local.get $tmp))
 
  (func $list3 (param $e1 i32) (param $e2 i32) (param $e3 i32) (result i32)
        (local $tmp i32)
        (local.set $tmp (call $list2 (local.get $e2) (local.get $e3)))
-       (call $push (local.get $tmp))  ;; For GC (tmp)
        (local.set $tmp (call $cons (local.get $e1) (local.get $tmp)))
-       (call $drop (call $pop))  ;; For GC ()
        (local.get $tmp))
 
  (func $simpleSymbolp (param $obj i32) (result i32)
@@ -1208,14 +1202,14 @@
        (local $sym i32)
        (local $cell i32)
        (local.set $sym (call $cons (global.get $tag_symbol) (i32.const 0)))
-       (call $push (local.get $sym))  ;; For GC
+       (call $push (local.get $sym))  ;; For GC (sym)
        (local.set $cell (call $makename (global.get $boffo)))
        (call $setcdr (local.get $sym) (local.get $cell))  ;; For GC
        (local.set $cell (call $cons (local.get $cell) (i32.const 0)))
        (call $setcdr (local.get $sym) (local.get $cell))  ;; For GC
        (local.set $cell (call $cons (global.get $sym_pname) (local.get $cell)))
        (call $setcdr (local.get $sym) (local.get $cell))
-       (call $drop (call $pop))  ;; For GC
+       (call $drop (call $pop))  ;; For GC ()
        (call $pushToOblist (local.get $sym))
        (local.get $sym))
 
@@ -1326,13 +1320,9 @@
  ;; Returns (err n . args)
  (func $makeCatchableError (param $n i32) (param $args i32) (result i32)
        (local $ret i32)
-       (call $push (local.get $args))  ;; For GC (args)
        (local.set
         $ret (call $cons (call $int2fixnum (local.get $n)) (local.get $args)))
-       (call $push (local.get $ret))  ;; For GC (args ret)
        (local.set $ret (call $cons (global.get $tag_error) (local.get $ret)))
-       (call $drop (call $pop))  ;; For GC (args)
-       (call $drop (call $pop))  ;; For GC ()
        (local.get $ret))
  (func $catchablep (param $obj i32) (param $n i32) (result i32)
        (if (call $errorp (local.get $obj))
@@ -1511,11 +1501,9 @@
                       (br $block)))
                  (br $block)))  ;; valid dotted list
             ;; Proper list
-            (call $push (local.get $elm))  ;; For GC (ret elm)
+            (call $drop (call $pop))  ;; For GC ()
             (local.set $ret (call $cons (local.get $elm) (local.get $ret)))
             (local.set $elm (i32.const 0))
-            (call $drop (call $pop))  ;; For GC (ret)
-            (call $drop (call $pop))  ;; For GC ()
             (br $loop)))
        (if (call $errorp (local.get $ret))
            (return (local.get $ret)))
@@ -1552,13 +1540,10 @@
               (local.set $ret (call $read))
               (if (call $errorp (local.get $ret))
                   (br $block))
-              (call $push (local.get $ret))  ;; For GC
               (local.set $ret (call $cons (local.get $ret) (i32.const 0)))
-              (call $drop (call $pop)) (call $push (local.get $ret))  ;; For GC
               (local.set $ret (call $cons
                                     (global.get $sym_quote)
                                     (local.get $ret)))
-              (call $drop (call $pop))  ;; For GC
               (br $block)))
          (local.set $ret (call $readAtom)))
        (local.get $ret))
@@ -1601,14 +1586,10 @@
             (local.set
              $elm
              (call $eval (call $car (local.get $lst)) (local.get $a)))
-            (if (call $errorp (local.get $elm))
-                (then
-                 (call $drop (call $pop))  ;; For GC ()
-                 (return (local.get $elm))))
-            (call $push (local.get $elm))  ;; For GC (ret elm)
-            (local.set $ret (call $cons (local.get $elm) (local.get $ret)))
-            (call $drop (call $pop))  ;; For GC (ret)
             (call $drop (call $pop))  ;; For GC ()
+            (if (call $errorp (local.get $elm))
+                (return (local.get $elm)))
+            (local.set $ret (call $cons (local.get $elm) (local.get $ret)))
             (local.set $lst (call $cdr (local.get $lst)))
             (br $loop)))
        (call $nreverse (local.get $ret)))
@@ -1676,6 +1657,9 @@
  ;; All arguments must be protected from GC
  (func $pairlis (param $x i32) (param $y i32) (param $z i32) (result i32)
        (local $tmp i32)
+       ;;;(call $push (local.get $x))  ;; For GC (x)
+       ;;;(call $push (local.get $y))  ;; For GC (x y)
+       ;;;(call $push (local.get $z))  ;; For GC (x y z)
        (block $block
          (loop $loop
             (br_if $block (i32.eqz (call $consp (local.get $x))))
@@ -1683,13 +1667,14 @@
             (local.set $tmp (call $cons
                                   (call $car (local.get $x))
                                   (call $safecar (local.get $y))))
-            (call $push (local.get $tmp))  ;; For GC (z tmp)
-            (local.set $z (call $cons (local.get $tmp) (local.get $z)))
-            (call $drop (call $pop))  ;; For GC (z)
             (call $drop (call $pop))  ;; For GC ()
+            (local.set $z (call $cons (local.get $tmp) (local.get $z)))
             (local.set $x (call $cdr (local.get $x)))
             (local.set $y (call $safecdr (local.get $y)))
             (br $loop)))
+       ;;;(call $drop (call $pop))  ;; For GC (x y)
+       ;;;(call $drop (call $pop))  ;; For GC (x)
+       ;;;(call $drop (call $pop))  ;; For GC ()
        (local.get $z))
 
  (func
@@ -1706,9 +1691,13 @@
   (call $log (i32.const 11111));;;;;
   (call $log (global.get $sp));;;;;
   (call $push (local.get $e))  ;; For GC (e)
-  (call $push (local.get $a))  ;; For GC (e, a)
+  (call $push (local.get $a))  ;; For GC (e a)
   (block $evalbk
     (loop $evallp
+       (if (i32.const 0)  ;; For aggrassive debugging
+           (then
+            (call $printObj (local.get $e))
+            (call $terprif)))
        ;; Check cons_count. Ideally this should be checked everywhere cons is
        ;; called but it's too much. So check it only here as a workaround.
        (if (i32.and
@@ -1925,6 +1914,8 @@
             (call $printSpace)
             (call $printObj (local.get $args))
             (call $terprif)))
+       ;; Note that $fn is not protected from GC when it's generated by
+       ;; FUNCTION or LABEL.
        (block $applybk
          (loop $applylp
             ;; fn shouldn't be an atom (we check whether fn is a symbol above)
@@ -1938,13 +1929,15 @@
             (call $log (i32.const 10000007));;;;;
             (if (i32.eq (call $car (local.get $fn)) (global.get $sym_lambda))
                 (then
-                 (call $push (local.get $args))  ;; For GC (e, a, args)
+                 (call $push (local.get $args))  ;; For GC (e a args)
+                 (call $push (local.get $fn))  ;; For GC (e a args fn)
                  (local.set
                   $tmp
                   (call $pairlis
                         (call $cadr (local.get $fn)) (local.get $args)
                         (local.get $a)))
-                 (call $drop (call $pop))  ;; For GC (e, a)
+                 (call $drop (call $pop))  ;; For GC (e a args)
+                 (call $drop (call $pop))  ;; For GC (e a)
                  (local.set $e (call $caddr (local.get $fn)))
                  (local.set $a (local.get $tmp))
                  (i32.store (i32.sub (global.get $sp) (i32.const 8))
@@ -1980,9 +1973,9 @@
                  (local.set $fn (call $cadr (local.get $fn)))
                  (br $applylp)))
             ;; FUNCTION, LABEL, or a function that returns a function
-            (call $push (local.get $args))  ;; For GC (e, a, args)
+            (call $push (local.get $args))  ;; For GC (e a args)
             (local.set $tmp (call $eval (local.get $fn) (local.get $a)))
-            (call $drop (call $pop))  ;; For GC (e, a)
+            (call $drop (call $pop))  ;; For GC (e a)
             (if (call $errorp (local.get $tmp))
                 (then (local.set $ret (local.get $tmp))
                       (br $evalbk)))
@@ -2075,7 +2068,6 @@
        (local $p i32)
        (local.set $p (i32.const 0))
        (loop $loop
-          (call $log (local.get $p));;;
           (if (i32.eq (local.get $p) (global.get $primitive_obj_end))
               (return))
           (call $markObj (local.get $p))
@@ -3260,16 +3252,12 @@
        (local.set $tmp (call $cons
                              (call $car (local.get $args))
                              (call $cadr (local.get $args))))
-       (call $push (local.get $tmp))  ;; For GC (tmp)
        (local.set $tmp (call $cons (local.get $tmp) (local.get $a)))
-       (call $drop (call $pop))  ;; For GC ()
-       (call $push (local.get $tmp))  ;; For GC (tmp)
        ;; Create (FUNARG fun ((name . fun) . a))
        (local.set
         $ret
         (call $list3 (global.get $sym_funarg) (call $cadr (local.get $args))
               (local.get $tmp)))
-       (call $drop (call $pop))  ;; For GC ()
        (call $push (i32.const 0))  ;; Don't need to eval return value
        (local.get $ret))
 
@@ -3653,10 +3641,8 @@
              (br_if $block (i32.eqz (local.get $pn)))
              (call $push (local.get $ret))  ;; For GC (ret)
              (local.set $nm (call $unpackn1 (call $car (local.get $pn))))
-             (call $push (local.get $nm))  ;; For GC (ret, nm)
-             (local.set $ret (call $cons (local.get $nm) (local.get $ret)))
-             (call $drop (call $pop))  ;; For GC (ret)
              (call $drop (call $pop))  ;; For GC ()
+             (local.set $ret (call $cons (local.get $nm) (local.get $ret)))
              (local.set $pn (call $cdr (local.get $pn)))
              (br $loop)))
         (call $conc (call $nreverse (local.get $ret))))
@@ -3921,7 +3907,6 @@
          (loop $loop
             (if (i32.eqz (local.get $arg1))
                 (return (local.get $ret)))
-            (call $push (local.get $ret))  ;; For GC (ret)
             (local.set
              $ret (call $cons (call $car (local.get $arg1)) (local.get $ret)))
             (local.set $arg1 (call $cdr (local.get $arg1)))
@@ -3988,10 +3973,8 @@
                                    (call $list2 (local.get $arg2)
                                          (local.get $arg1)))
                              (local.get $a)))
-            (call $push (local.get $val))  ;; For GC (ret, val)
-            (local.set $ret (call $cons (local.get $val) (local.get $ret)))
-            (call $drop (call $pop))  ;; For GC (ret)
             (call $drop (call $pop))  ;; For GC ()
+            (local.set $ret (call $cons (local.get $val) (local.get $ret)))
             (if (call $errorp (local.get $val))
                 (return (local.get $val)))
             (local.set $arg1 (call $cdr (local.get $arg1)))
@@ -4280,9 +4263,7 @@
          (global.set $suppress_error (local.get $suppress))
          (if (call $errorp (local.get $val))
              (return (i32.const 0)))
-         (call $push (local.get $val))  ;; For GC (val)
          (local.set $ret (call $cons (local.get $val) (i32.const 0)))
-         (call $drop (call $pop))  ;; For GC ()
          (local.get $ret))
  ;;; END SUBR/FSUBR
 
@@ -4372,6 +4353,8 @@
        (call $rdset (i32.const 51200))
        (call $printObj
              (call $eval (call $read) (local.get $alist)))
+       (if (i32.ne (global.get $sp) (global.get $stack_bottom))
+           (unreachable))  ;; TODO: Show better error messages
        (call $outputString (i32.const 40960)))
 
  (func (export "read")
