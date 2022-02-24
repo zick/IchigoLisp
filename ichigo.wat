@@ -633,6 +633,7 @@
        (if (i32.ge_u (local.get $ret) (global.get $heap_end))
            (then
             (call $drop (call $garbageCollect))
+            (local.set $ret (global.get $fp))
             (if (i32.ge_u (local.get $ret) (global.get $heap_end))
                 (then
                  (call $logstr (global.get $str_err_gc))
