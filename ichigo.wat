@@ -88,9 +88,15 @@
  (global $printp (mut i32) (i32.const 0))
 
  (global $oblist (mut i32) (i32.const 0))
+ (global $gensym_num (mut i32) (i32.const 0))
 
  (global $trace_level (mut i32) (i32.const 0))
  (global $traceset_env (mut i32) (i32.const 0))
+
+ (global $cons_counting (mut i32) (i32.const 0))
+ (global $cons_count (mut i32) (i32.const 0))
+ (global $cons_limit (mut i32) (i32.const 0))
+ (global $suppress_error (mut i32) (i32.const 0))
 
  ;;; Symbol strings [2000 - 4095]
  (data (i32.const 2000) "NIL\00")  ;; 4
@@ -325,6 +331,28 @@
  (global $str_floatp i32 (i32.const 3150))
  (data (i32.const 3160) "LEFTSHIFT\00")  ;; 10
  (global $str_leftshift i32 (i32.const 3160))
+ (data (i32.const 3170) "READ\00")  ;; 5
+ (global $str_read i32 (i32.const 3170))
+ (data (i32.const 3180) "PUNCH\00")  ;; 6
+ (global $str_punch i32 (i32.const 3180))
+ (data (i32.const 3190) "GENSYM\00")  ;; 7
+ (global $str_gensym i32 (i32.const 3190))
+ (data (i32.const 3200) "REMOB\00")  ;; 6
+ (global $str_remob i32 (i32.const 3200))
+ (data (i32.const 3210) "EVLIS\00")  ;; 6
+ (global $str_evlis i32 (i32.const 3210))
+ (data (i32.const 3220) "DUMP\00")  ;; 5
+ (global $str_dump i32 (i32.const 3220))
+ (data (i32.const 3230) "ERROR\00")  ;; 6
+ (global $str_error i32 (i32.const 3230))
+ (data (i32.const 3240) "COUNT\00")  ;; 6
+ (global $str_count i32 (i32.const 3240))
+ (data (i32.const 3250) "UNCOUNT\00")  ;; 8
+ (global $str_uncount i32 (i32.const 3250))
+ (data (i32.const 3260) "SPEAK\00")  ;; 6
+ (global $str_speak i32 (i32.const 3260))
+ (data (i32.const 3270) "ERRORSET\00")  ;; 9
+ (global $str_errorset i32 (i32.const 3270))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -447,7 +475,18 @@
  (global $sym_fixp i32 (i32.const 0x03a8))
  (global $sym_floatp i32 (i32.const 0x03b0))
  (global $sym_leftshift i32 (i32.const 0x03b8))
- (global $primitive_obj_end i32 (i32.const 0x03c0))
+ (global $sym_read i32 (i32.const 0x03c0))
+ (global $sym_punch i32 (i32.const 0x03c8))
+ (global $sym_gensym i32 (i32.const 0x03d0))
+ (global $sym_remob i32 (i32.const 0x03d8))
+ (global $sym_evlis i32 (i32.const 0x03e0))
+ (global $sym_dump i32 (i32.const 0x03e8))
+ (global $sym_error i32 (i32.const 0x03f0))
+ (global $sym_count i32 (i32.const 0x03f8))
+ (global $sym_uncount i32 (i32.const 0x0400))
+ (global $sym_speak i32 (i32.const 0x0f08))
+ (global $sym_errorset i32 (i32.const 0x0410))
+ (global $primitive_obj_end i32 (i32.const 0x0418))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -480,6 +519,12 @@
  (global $str_msg_trace_enter i32 (i32.const 5290))
  (data (i32.const 5300) "EXIT\00")  ;; 5
  (global $str_msg_trace_exit i32 (i32.const 5300))
+ (data (i32.const 5310) "ADDRESS  CAR      CDR\00")  ;; 22
+ (global $str_msg_dump_header i32 (i32.const 5310))
+ (data (i32.const 5340) "A1: APPLIED ERROR\00")  ;; 18
+ (global $str_err_error i32 (i32.const 5340))
+ (data (i32.const 5360) "F1: CONS COUNTER\00")  ;; 17
+ (global $str_err_counter i32 (i32.const 5360))
 
  (func $push (param $val i32)
        (i32.store (global.get $sp) (local.get $val))
@@ -600,8 +645,12 @@
             (global.set $fp (call $cdr (global.get $fp)))
             (if (i32.eq (global.get $fp) (global.get $fillp))
                 (global.set $linear_mode (i32.const 1)))))
+       (if (global.get $cons_counting)
+           (global.set
+            $cons_count (i32.add (global.get $cons_count) (i32.const 1))))
        (local.get $ret))
 
+  ;; TODO: Push `a` and `d` to simplify GC related code.
  (func $cons (param $a i32) (param $d i32) (result i32)
       (local $cell i32)
       (local.set $cell (call $rawcons))
@@ -709,7 +758,6 @@
        (local $cur i32)
        (local $name1 i32)
        (local.set $ret (i32.const 0))
-       ;; TODO: rewrite this using nreverse.
        (loop $loop
           (local.set $name1 (call $makename1 (local.get $str)))
           (local.set $size (call $name1Size (local.get $name1)))
@@ -799,12 +847,43 @@
             (local.set $str (i32.add (local.get $str) (i32.const 1)))
             (br $loop))))
 
- (func $printError (param $err i32)
-       (call $printChar (i32.const 60))  ;; '<'
+ (func $printErrorContent (param $err i32)
        (if (call $fixnump (call $cdr (local.get $err)))
            (call $printString (call $fixnum2int (call $cdr (local.get $err))))
-           (call $printString (global.get $str_err_generic)))
+           (if (call $symbolp (call $cdr (local.get $err)))
+               (call $printSymbol (call $cdr (local.get $err)))
+               (call $printString (global.get $str_err_generic)))))
+
+ (func $printError (param $err i32)
+       (call $printChar (i32.const 60))  ;; '<'
+       (call $printErrorContent (local.get $err))
        (call $printChar (i32.const 62)))  ;; '>'
+
+ (func $printErrorPrefix
+       (call $printChar (i32.const 42))  ;; '*'
+       (call $printChar (i32.const 42))  ;; '*'
+       (call $printChar (i32.const 42))  ;; '*'
+       (call $printChar (i32.const 32)))  ;; ' '
+
+ (func $printErrorMsg (param $err i32)
+       (call $printErrorPrefix)
+       (call $printErrorContent (local.get $err)))
+
+ (func $perr1 (param $err i32) (param $obj i32) (result i32)
+       (if (global.get $suppress_error)
+           (return (local.get $err)))
+       (if (i32.eq (call $cdr (local.get $err))
+                   (call $int2fixnum (global.get $str_err_error)))
+           (then
+            (call $printErrorPrefix))
+           (else
+            (call $printErrorMsg (local.get $err))
+            (call $printChar (i32.const 32))  ;; ' '
+            (call $printChar (i32.const 45))  ;; '-'
+            (call $printChar (i32.const 32))))  ;; ' '
+       (call $printObj (local.get $obj))
+       (call $terprif)
+       (local.get $err))
 
  ;;; Output a string representation of a fixnum to `printp`.
  ;;; `printp` should point to '\00'.
@@ -834,6 +913,65 @@
           (br_if $fill_loop (i32.gt_s (local.get $n) (i32.const 0))))
        (global.set $printp (i32.add (global.get $printp) (local.get $size)))
        (i32.store8 (global.get $printp) (i32.const 0)))
+
+ ;; TODO: Create general-purpose printInteger
+ (func $printFixnum05 (param $n i32)
+       (local $m i32)
+       (local $size i32)
+       (local.set $n (call $fixnum2int (local.get $n)))
+       (local.set $size (i32.const 5))
+       (local.set $m (i32.const 1))
+       (loop $fill_loop
+          (i32.store8 (i32.add (global.get $printp)
+                               (i32.sub (local.get $size) (local.get $m)))
+                      (i32.add
+                       (i32.const 48)  ;; '0'
+                       (i32.rem_u (local.get $n) (i32.const 10))))
+          (local.set $m (i32.add (local.get $m) (i32.const 1)))
+          (local.set $n (i32.div_u (local.get $n) (i32.const 10)))
+          (br_if $fill_loop (i32.le_s (local.get $m) (local.get $size))))
+       (global.set $printp (i32.add (global.get $printp) (local.get $size)))
+       (i32.store8 (global.get $printp) (i32.const 0)))
+ (func $int2char (param $n i32) (result i32)
+       (if (i32.and
+            (i32.le_u (i32.const 0) (local.get $n))
+            (i32.le_u (local.get $n) (i32.const 9)))
+           (return (i32.add (i32.const 48) (local.get $n))))  ;; '0'
+       (if (i32.and
+            (i32.le_u (i32.const 0xa) (local.get $n))
+            (i32.le_u (local.get $n) (i32.const 0xf)))
+           (return (i32.add (i32.const 55) (local.get $n))))  ;; 'A'-10
+       (i32.const 42))  ;; '*'
+ (func $printHex08 (param $n i32)
+       (local $m i32)
+       (local $size i32)
+       (local.set $size (i32.const 8))
+       (local.set $m (i32.const 1))
+       (loop $fill_loop
+          (i32.store8 (i32.add (global.get $printp)
+                               (i32.sub (local.get $size) (local.get $m)))
+                      (call $int2char
+                            (i32.rem_u (local.get $n) (i32.const 16))))
+          (local.set $m (i32.add (local.get $m) (i32.const 1)))
+          (local.set $n (i32.div_u (local.get $n) (i32.const 16)))
+          (br_if $fill_loop (i32.le_s (local.get $m) (local.get $size))))
+       (global.set $printp (i32.add (global.get $printp) (local.get $size)))
+       (i32.store8 (global.get $printp) (i32.const 0)))
+ (func $printByteAsChar (param $n i32)
+       (if (i32.and (i32.le_u (i32.const 0x20) (local.get $n))  ;; ' '
+                    (i32.le_u (local.get $n) (i32.const 0x7e)))  ;; '~'
+           (call $printChar (local.get $n))
+           (call $printChar (i32.const 46))))  ;; '.'
+ (func $printWordAsChars (param $n i32)
+       (call $printByteAsChar (i32.and (local.get $n) (i32.const 0xff)))
+       (call $printByteAsChar (i32.and (i32.shr_u (local.get $n) (i32.const 8))
+                                       (i32.const 0xff)))
+       (call $printByteAsChar
+             (i32.and (i32.shr_u (local.get $n) (i32.const 16))
+                      (i32.const 0xff)))
+       (call $printByteAsChar
+             (i32.and (i32.shr_u (local.get $n) (i32.const 24))
+                      (i32.const 0xff))))
 
  (func $prop (param $obj i32) (param $key i32) (result i32)
        (local.set $obj (call $cdr (local.get $obj)))
@@ -1022,6 +1160,17 @@
             (return)))
        )
 
+ (func $strcpy (param $dst i32) (param $src i32)
+       (local $c i32)
+       (loop $loop
+          (local.set $c (i32.load8_u (local.get $src)))
+          (i32.store8 (local.get $dst) (local.get $c))
+          (if (i32.eqz (local.get $c))
+              (return))
+          (local.set $src (i32.add (local.get $src) (i32.const 1)))
+          (local.set $dst (i32.add (local.get $dst) (i32.const 1)))
+          (br $loop)))
+
  (func $pnameeq (param $cell i32) (param $str i32) (result i32)
        (local $key1 i32)
        (local $key2 i32)
@@ -1130,7 +1279,7 @@
        (local.set $is_num (i32.const 0))
        (local.set $num (i32.const 0))
        (local.set $c (i32.load8_u (global.get $boffop)))
-       (if (i32.eq (local.get $c) (i32.const 45))
+       (if (i32.eq (local.get $c) (i32.const 45))  ;; '-'
            (then
             (local.set $sign (i32.const -1))
             (global.set $boffop (i32.add (global.get $boffop) (i32.const 1)))
@@ -1417,6 +1566,28 @@
        (global.set $oblist (call $cons (local.get $sym) (global.get $oblist)))
        (call $setcar (global.get $oblist_cell) (global.get $oblist)))
 
+ (func $removeFromOblist (param $sym i32) (result i32)
+       (local $p i32)
+       (if (i32.lt_u (local.get $sym) (global.get $primitive_obj_end))
+           ;; TODO: Return the specific error
+           (return (call $makeStrError (global.get $str_err_generic))))
+       (if (i32.eq (call $car (global.get $oblist)) (local.get $sym))
+           (then
+            (global.set $oblist (call $cdr (global.get $oblist)))
+            (call $setcar (global.get $oblist_cell) (global.get $oblist))
+            (return (local.get $sym))))
+       (local.set $p (global.get $oblist))
+       (loop $loop
+          (if (i32.eqz (call $cdr (local.get $p)))
+              (return (i32.const 0)))
+          (if (i32.eq (call $cadr (local.get $p)) (local.get $sym))
+              (then
+               (call $setcdr (local.get $p) (call $cddr (local.get $p)))
+               (return (local.get $sym))))
+          (local.set $p (call $cdr (local.get $p)))
+          (br $loop))
+       (i32.const 0))
+
  ;;; `lst` and `a` must be protected from GC
  (func $evlis (param $lst i32) (param $a i32) (result i32)
        (local $ret i32)
@@ -1537,6 +1708,18 @@
   (call $push (local.get $a))  ;; For GC (e, a)
   (block $evalbk
     (loop $evallp
+       ;; Check cons_count. Ideally this should be checked everywhere cons is
+       ;; called but it's too much. So check it only here as a workaround.
+       (if (i32.and
+            (global.get $cons_counting)
+            (i32.gt_u (global.get $cons_count) (global.get $cons_limit)))
+           (then
+            (global.set $cons_counting (i32.const 0))
+            (local.set
+             $ret (call $perr1
+                        (call $makeStrError (global.get $str_err_counter))
+                        (call $int2fixnum (global.get $cons_count))))
+            (br $evalbk)))
        ;; Evaluate an atom (except symbol)
        (call $log (i32.const 10000001));;;;;
        (if (i32.eqz (local.get $e))
@@ -1573,13 +1756,18 @@
                  (local.set $ret (call $cdr (local.get $tmp)))
                  (br $evalbk)))
             ;; The symbol has no value
-            (local.set $ret (call $makeStrError (global.get $str_err_unbound)))
+            (local.set
+             $ret (call $perr1
+                        (call $makeStrError (global.get $str_err_unbound))
+                        (local.get $e)))
             (br $evalbk)))
        (call $log (i32.const 10000003));;;;;
        (if (i32.eqz (call $consp (local.get $e)))  ;; Unknown object
            (then (local.set
                   $ret
-                  (call $makeStrError (global.get $str_err_generic)))
+                  (call $perr1
+                        (call $makeStrError (global.get $str_err_generic))
+                        (local.get $e)))
                  (br $evalbk)))
        (call $log (i32.const 10000004));;;;;
        ;; Evaluate a compound expression
@@ -1694,8 +1882,10 @@
           (if (i32.and (call $symbolp (local.get $fn))
                        (i32.ne (local.get $fn_lookup) (i32.const 0)))
               (then (local.set
-                          $ret
-                          (call $makeStrError (global.get $str_err_nodef)))
+                     $ret
+                     (call $perr1
+                           (call $makeStrError (global.get $str_err_nodef))
+                           (local.get $fn)))
                          (br $evalbk)))
           ;; Find fn from alist if fn is a symbol
           (if (call $symbolp (local.get $fn))
@@ -1703,10 +1893,13 @@
                (local.set $fn_lookup (i32.const 1))
                (local.set $tmp (call $assoc (local.get $fn) (local.get $a)))
                (if (i32.eqz (local.get $tmp))
-                   (then (local.set
-                          $ret
-                          (call $makeStrError (global.get $str_err_nodef)))
-                         (br $evalbk)))
+                   (then
+                    (local.set
+                     $ret
+                     (call $perr1
+                           (call $makeStrError (global.get $str_err_nodef))
+                           (local.get $fn)))
+                    (br $evalbk)))
                (local.set $fn (call $cdr (local.get $tmp)))
                (br $complp)))
           )  ;; complp
@@ -1737,7 +1930,9 @@
             (if (i32.eqz (call $consp (local.get $fn)))
                 (then (local.set
                        $ret
-                       (call $makeStrError (global.get $str_err_nodef)))
+                       (call $perr1
+                             (call $makeStrError (global.get $str_err_nodef))
+                             (local.get $fn)))
                       (br $evalbk)))
             (call $log (i32.const 10000007));;;;;
             (if (i32.eq (call $car (local.get $fn)) (global.get $sym_lambda))
@@ -2241,6 +2436,28 @@
        (call $initsymSubr (global.get $sym_leftshift)
              (global.get $str_leftshift)
              (global.get $idx_leftshift) (i32.const 2))
+       (call $initsymSubr (global.get $sym_read) (global.get $str_read)
+             (global.get $idx_read) (i32.const 0))
+       (call $initsymSubr (global.get $sym_punch) (global.get $str_punch)
+             (global.get $idx_punch) (i32.const 1))
+       (call $initsymSubr (global.get $sym_gensym) (global.get $str_gensym)
+             (global.get $idx_gensym) (i32.const 0))
+       (call $initsymSubr (global.get $sym_remob) (global.get $str_remob)
+             (global.get $idx_remob) (i32.const 1))
+       (call $initsymSubr (global.get $sym_evlis) (global.get $str_evlis)
+             (global.get $idx_evlis) (i32.const 2))
+       (call $initsymSubr (global.get $sym_dump) (global.get $str_dump)
+             (global.get $idx_dump) (i32.const 4))
+       (call $initsymSubr (global.get $sym_error) (global.get $str_error)
+             (global.get $idx_error) (i32.const 1))
+       (call $initsymSubr (global.get $sym_count) (global.get $str_count)
+             (global.get $idx_count) (i32.const 1))
+       (call $initsymSubr (global.get $sym_uncount) (global.get $str_uncount)
+             (global.get $idx_uncount) (i32.const 1))
+       (call $initsymSubr (global.get $sym_speak) (global.get $str_speak)
+             (global.get $idx_speak) (i32.const 1))
+       (call $initsymSubr (global.get $sym_errorset) (global.get $str_errorset)
+             (global.get $idx_errorset) (i32.const 4))
 
        ;;; FSUBR
        (call $initsymKv
@@ -2533,6 +2750,28 @@
  (global $idx_floatp i32 (i32.const 186))
  (elem (i32.const 187) $subr_leftshift)
  (global $idx_leftshift i32 (i32.const 187))
+ (elem (i32.const 188) $subr_read)
+ (global $idx_read i32 (i32.const 188))
+ (elem (i32.const 189) $subr_punch)
+ (global $idx_punch i32 (i32.const 189))
+ (elem (i32.const 190) $subr_gensym)
+ (global $idx_gensym i32 (i32.const 190))
+ (elem (i32.const 191) $subr_remob)
+ (global $idx_remob i32 (i32.const 191))
+ (elem (i32.const 192) $subr_evlis)
+ (global $idx_evlis i32 (i32.const 192))
+ (elem (i32.const 193) $subr_dump)
+ (global $idx_dump i32 (i32.const 193))
+ (elem (i32.const 194) $subr_error)
+ (global $idx_error i32 (i32.const 194))
+ (elem (i32.const 195) $subr_count)
+ (global $idx_count i32 (i32.const 195))
+ (elem (i32.const 196) $subr_uncount)
+ (global $idx_uncount i32 (i32.const 196))
+ (elem (i32.const 197) $subr_speak)
+ (global $idx_speak i32 (i32.const 197))
+ (elem (i32.const 198) $subr_errorset)
+ (global $idx_errorset i32 (i32.const 198))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -3882,6 +4121,168 @@
                      (i32.shr_s (local.get $arg1)
                                 (i32.mul (local.get $arg2) (i32.const -1))))))
          (call $int2fixnum (i32.shl (local.get $arg1) (local.get $arg2))))
+
+   (func $subr_read (result i32)
+         (call $read))
+
+   (func $subr_punch (result i32)
+         (call $subr_print))
+
+   (func $subr_gensym (result i32)
+         (local $p i32)
+         (local $name i32)
+         (local $cell i32)
+         (local $sym i32)
+         (global.set
+          $gensym_num (i32.add (global.get $gensym_num) (i32.const 1)))
+         (local.set $p (global.get $printp))  ;; original location of `printp`
+         (call $printFixnum05 (call $int2fixnum (global.get $gensym_num)))
+         (i32.store8 (global.get $boffo) (i32.const 71))  ;; 'G'
+         (call $strcpy
+               (i32.add (global.get $boffo) (i32.const 1))
+               (local.get $p))
+         (global.set $printp (local.get $p))  ;; restore `printp`
+         (i32.store8 (global.get $printp) (i32.const 0))
+         (local.set $name (call $makename (global.get $boffo)))
+         (call $push (local.get $name))  ;; For GC (name)
+         (local.set
+          $sym (call $cons (global.get $tag_symbol) (i32.const 0)))
+         (call $push (local.get $sym))  ;; For GC (name, sym)
+         (local.set $cell (call $cons (local.get $name) (i32.const 0)))
+         (call $setcdr (local.get $sym) (local.get $cell))  ;; For GC
+         (local.set
+          $cell (call $cons (global.get $sym_pname) (local.get $cell)))
+         (call $setcdr (local.get $sym) (local.get $cell))
+         (call $drop (call $pop))  ;; For GC (name)
+         (call $drop (call $pop))  ;; For GC ()
+         (local.get $sym))
+
+   (func $subr_remob (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         (call $removeFromOblist (local.get $arg1)))
+
+   (func $subr_evlis (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (call $evlis (local.get $arg1) (local.get $arg2)))
+
+   (func $subr_dump (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local $arg3 i32)
+         (local $arg4 i32)
+         (local $low i32)
+         (local $high i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (local.set $arg3 (call $getArg3))
+         (local.set $arg4 (call $getArg4))
+         ;; 8-byte align
+         (local.set $low (call $fixnum2int (local.get $arg1)))
+         (local.set $low (i32.and (local.get $low) (i32.const 0xfffffff8)))
+         (local.set $high (call $fixnum2int (local.get $arg2)))
+         (local.set
+          $high (i32.and (i32.add (local.get $high) (i32.const 7))
+                         (i32.const 0xfffffff8)))
+         (call $printObj (local.get $arg4))
+         (call $terprif)
+         (call $printString (global.get $str_msg_dump_header))
+         (call $terprif)
+         (loop $loop
+            (if (i32.gt_u (local.get $low) (local.get $high))
+                (return (i32.const 0)))
+            (call $printHex08 (local.get $low))
+            (call $printSpace)
+            (call $printHex08 (i32.load (local.get $low)))
+            (call $printSpace)
+            (call $printHex08 (i32.load (i32.add (local.get $low)
+                                                 (i32.const 4))))
+            (call $printSpace)
+            (call $printWordAsChars (i32.load (local.get $low)))
+            (call $printSpace)
+            (call $printWordAsChars (i32.load (i32.add (local.get $low)
+                                                       (i32.const 4))))
+            (call $terprif)
+            (local.set $low (i32.add (local.get $low) (i32.const 8)))
+            (br $loop))
+         (i32.const 0))
+
+   (func $subr_error (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         (call $perr1
+               (call $makeStrError (global.get $str_err_error))
+               (local.get $arg1)))
+
+   (func $subr_count (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         (if (i32.eqz (local.get $arg1))
+             (then
+              (global.set $cons_counting (i32.const 1))  ;; Resume counting
+              (return (i32.const 0))))
+         (if (i32.eqz (call $fixnump (local.get $arg1)))
+             (return (call $makeStrError (global.get $str_err_num))))
+         (global.set $cons_counting (i32.const 1))
+         (global.set $cons_limit (call $fixnum2int (local.get $arg1)))
+         (global.set $cons_count (i32.const 0))
+         (i32.const 0))
+
+   (func $subr_uncount (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         ;; I don't know how the first argument is used...
+         (global.set $cons_counting (i32.const 0))
+         (i32.const 0))
+
+   (func $subr_speak (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         ;; I don't know how the first argument is used...
+         (call $int2fixnum (global.get $cons_count)))
+
+   (func $subr_errorset (result i32)
+         (local $counting i32)
+         (local $count i32)
+         (local $limit i32)
+         (local $suppress i32)
+         (local $val i32)
+         (local $ret i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local $arg3 i32)
+         (local $arg4 i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (local.set $arg3 (call $getArg3))
+         (local.set $arg4 (call $getArg4))
+         ;; Save the current status.
+         (local.set $counting (global.get $cons_counting))
+         (local.set $count (global.get $cons_count))
+         (local.set $limit (global.get $cons_limit))
+         (local.set $suppress (global.get $suppress_error))
+         ;; Set new status
+         (global.set $cons_counting (i32.const 1))
+         (global.set $cons_count (i32.const 0))
+         (if (i32.ne (local.get $arg2) (i32.const 0))
+             (global.set $cons_limit (call $fixnum2int (local.get $arg2))))
+         (global.set $suppress_error (i32.eqz (local.get $arg3)))
+         ;; Evaluate arg1
+         (local.set $val (call $eval (local.get $arg1) (local.get $arg4)))
+         ;; Restore the status.
+         (global.set $cons_counting (local.get $counting))
+         (global.set $cons_count (local.get $count))
+         (global.set $cons_limit (local.get $limit))
+         (global.set $suppress_error (local.get $suppress))
+         (if (call $errorp (local.get $val))
+             (return (i32.const 0)))
+         (call $push (local.get $val))  ;; For GC (val)
+         (local.set $ret (call $cons (local.get $val) (i32.const 0)))
+         (call $drop (call $pop))  ;; For GC ()
+         (local.get $ret))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL

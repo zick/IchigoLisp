@@ -9,6 +9,9 @@
       .comment {
           color: #888888
       }
+      .terminal {
+          font-family: Courier, monospace;
+      }
     </style>
   </head>
 
@@ -32,12 +35,12 @@
           },
           io: {
               printlnString: function(arg) {
-                  document.getElementById("console").innerText +=
+                  document.getElementById("terminal").innerText +=
                       getString(arg) + "\n";
               },
               outputString: function(arg) {
                   output = getString(arg);
-                  writeToConsole(output);
+                  writeToTerminal(output);
               },
           },
       };
@@ -54,9 +57,10 @@
           return str
               .replace(/</g, "&lt;")
               .replace(/>/g, "&gt;")
+              .replace(/  /g, "&nbsp;&nbsp;")
               .replace(/\n/g, "<br />");
       }
-      function writeToConsole(str) {
+      function writeToTerminal(str) {
           var first = true;
           var lines = str.split('\n')
           for (var i in lines) {
@@ -74,7 +78,7 @@
               if (com.length > 0) {
                   out += "<span class='comment'>" + htmlEscape(com) + "</span>";
               }
-              document.getElementById("console").innerHTML += out;
+              document.getElementById("terminal").innerHTML += out;
           }
       }
 
@@ -90,25 +94,25 @@
       }
       function runEval() {
           var str = document.getElementById("input").value;
-          writeToConsole("> " + str + "\n");
+          writeToTerminal("> " + str + "\n");
           document.getElementById("input").value = "";
 
           storeString(str);
           console.log("Input: " + getString(input_address));
           output = "";
           ichigo.instance.exports.readAndEval();
-          writeToConsole("\n");
+          writeToTerminal("\n");
       }
       function runRead() {
           var str = document.getElementById("input").value;
-          writeToConsole("(read only)> " + str + "\n");
+          writeToTerminal("(read only)> " + str + "\n");
           document.getElementById("input").value = "";
 
           storeString(str);
           console.log("Input: " + getString(input_address));
           output = "";
           ichigo.instance.exports.read();
-          writeToConsole("\n");
+          writeToTerminal("\n");
       }
       var test_data = [
           ["1", "1"],
@@ -355,6 +359,13 @@
           ["(floatp t)", "NIL"],
           ["(leftshift 3 2)", "12"],
           ["(leftshift 12 -1)", "6"],
+          ["(read)(This is a pen)", "(THIS IS A PEN)"],
+          ["(length (read))(This is a pen)", "4"],
+          ["(atom (gensym))", "*T*"],
+          ["(eq (gensym) (gensym))", "NIL"],
+          ["(prog () (csetq gomi 'kasu) (return (remob 'kasu)))", "KASU"],
+          ["(eq gomi 'kasu)", "NIL"],
+          ["(evlis '(t f (+ 1 2)) nil)", "(*T* NIL 3)"],
 
           // APVALs
           ["blank", " "],
@@ -423,7 +434,7 @@
           var num_pass = 0, num_fail = 0;
           for (i in test_data) {
               var str = test_data[i][0];
-              writeToConsole("> " + str + "\n");
+              writeToTerminal("> " + str + "\n");
               storeString(str);
               output = "";
               ichigo.instance.exports.readAndEval();
@@ -436,10 +447,10 @@
               }
 
               if (pass) {
-                  writeToConsole("  ;; OK" + "\n");
+                  writeToTerminal("  ;; OK" + "\n");
                   num_pass++;
               } else {
-                  writeToConsole("  ;; Failed" + "\n" +
+                  writeToTerminal("  ;; Failed" + "\n" +
                                  ";; Expected: " + test_data[i][1] + "\n" +
                                  ";; Actual: " + output + "\n");
                   num_fail++;
@@ -461,7 +472,7 @@
     <input type="button" value="test" onClick="runTest()"></input>
     <div id="msg" style="color:#0000ff">
     </div>
-    <div id="console">
+    <div id="terminal" class="terminal">
     </div>
   </body>
 
