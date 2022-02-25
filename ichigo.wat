@@ -2057,6 +2057,13 @@
   (call $ilog (local.get $ret))
   (local.get $ret))
 
+ (func $apply (param $fn i32) (param $args i32) (param $a i32) (result i32)
+       (call $eval
+             (call $makeCatchableError
+                   (global.get $ce_apply)
+                   (call $cons (local.get $fn) (local.get $args)))
+             (local.get $a)))
+
  ;;; GARBAGE COLLECTOR
  (global $num_mark (mut i32) (i32.const 0))
  (global $num_unmark (mut i32) (i32.const 0))
@@ -4413,6 +4420,30 @@
        (call $rdset (i32.const 51200))
        (call $printObj
              (call $eval (call $read) (local.get $alist)))
+       (if (i32.ne (global.get $sp) (global.get $stack_bottom))
+           (then
+            (call $log (i32.const 999001))
+            (call $log (global.get $sp))
+            (unreachable)))  ;; TODO: Show better error messages
+       (call $outputString (i32.const 40960)))
+
+ (func (export "readAndEvalquote")
+       (local $fn i32)
+       (local $args i32)
+       (local $alist i32)
+       (local.set $alist (i32.const 0))
+
+       (global.set $printp (i32.const 40960))
+       (call $rdset (i32.const 51200))
+       (local.set $fn (call $read))
+       (call $push (local.get $fn))  ;; For GC (fn)
+       (local.set $args (call $read))
+       (call $push (local.get $args))  ;; For GC (fn args)
+       (call
+        $printObj
+        (call $apply (local.get $fn) (local.get $args) (local.get $alist)))
+       (call $drop (call $pop))  ;; For GC (fn)
+       (call $drop (call $pop))  ;; For GC ()
        (if (i32.ne (global.get $sp) (global.get $stack_bottom))
            (then
             (call $log (i32.const 999001))

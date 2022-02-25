@@ -1,11 +1,13 @@
 <!doctype html>
-
 <html>
-
   <head>
     <meta charset="utf-8">
-    <title>Simple logging example</title>
+    <title>Ichigo Lisp</title>
     <style>
+      h1 {
+          font-size: 100%;
+          font-weight: normal;
+      }
       .comment {
           color: #888888
       }
@@ -19,18 +21,25 @@
       }
     </style>
   </head>
-
   <body>
+    <h1>Ichigo Lisp</h1>
     <script type="text/javascript" src="test_data.js"></script>
     <script type="text/javascript" src="main.js"></script>
-    <input type="text" id="input"></input>
+    <input type="text" id="input" size="80"></input>
     <input type="button" value="eval" onClick="startEval()"></input>
-    <input type="button" value="debug" onClick="setDebugLevel()"></input>
-    <input type="button" value="test" onClick="startTest()"></input>
+    <a href="#" onclick="moreOptions()">more options</a>
+    <div id="more_options" style="display:none">
+      <select id="evaltype">
+        <option value="eval">Eval</option>
+        <option value="evalquote">Evalquote</option>
+      </select>
+      <input type="button" value="set debug level"
+             onClick="setDebugLevel()"></input>
+      <input type="button" value="test" onClick="startTest()"></input>
+    </div>
     <div id="msg" style="color:#0000ff">
     </div>
     <div id="terminal" class="terminal">
     </div>
   </body>
-
   </html>

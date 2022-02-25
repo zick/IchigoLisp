@@ -49,7 +49,8 @@ function startEval() {
     document.getElementById('input').value = '';
 
     var sender = ['eval', str];
-    ichigo.postMessage([sender, 'eval', str]);
+    var command = document.getElementById('evaltype').value;
+    ichigo.postMessage([sender, command, str]);
 }
 function endEval(sender, out) {
     var sender_type = sender[0];
@@ -127,6 +128,14 @@ function endTest() {
     setMessage('pass: ' + num_pass + '  fail: ' + num_fail + ' (finished)');
 }
 
+function moreOptions() {
+    var opt = document.getElementById('more_options');
+    if (opt.style.display != "none") {
+        opt.style.display = 'none';
+    } else {
+        opt.style.display = 'block';
+    }
+}
 
 ichigo.onmessage = function(e) {
     if (e.data.length < 2) {
