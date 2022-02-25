@@ -4379,6 +4379,11 @@
   "(CSETQ EOF '$EOF$) "
   "(CSETQ EOR '$EOR$) "
   ;; Ichigo Lisp Utilities
+  "(DEFLIST '( "
+  " (DEFUN (LAMBDA (S A) (PUTPROP (CAR S) (CONS 'LAMBDA (CDR S)) 'EXPR)))"
+  " (DE (LAMBDA (S A) (PUTPROP (CAR S) (CONS 'LAMBDA (CDR S)) 'EXPR)))"
+  " (DF (LAMBDA (S A) (PUTPROP (CAR S) (CONS 'LAMBDA (CDR S)) 'FEXPR)))"
+  ") 'FEXPR) "
   "(DEFINE '( "
   " (REMOVE-IF-NOT (LAMBDA (F LST) (MAPCON LST "
   "  (FUNCTION (LAMBDA (X) (IF (F (CAR X)) (LIST (CAR X)) NIL)))))) "
