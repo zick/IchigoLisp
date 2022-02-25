@@ -4385,6 +4385,9 @@
   " (SYMBOLS-WITH (LAMBDA (IND) (REMOVE-IF-NOT "
   "  (FUNCTION (LAMBDA (X) (GET X IND))) OBLIST)))"
   "))"
+  ;; Greeting
+  "(PRINT '$$|\F0\9F\8D\93 Ichigo Lisp version 0.0.1 powered by WebAssembly|) "
+  "(PRINT '$$|\F0\9F\8D\93 Enjoy LISP 1.5(-ish) programming|) "
   "NIL "  ;; END OF EXPR/FEXPR/APVAL
   "\00")
 

@@ -73,6 +73,10 @@ function endEval(sender, out) {
         }
     }
 }
+function enterEval() {
+    startEval();
+    return false;
+}
 
 function setDebugLevel() {
     var str = document.getElementById('input').value;

@@ -25,9 +25,11 @@
     <h1>Ichigo Lisp</h1>
     <script type="text/javascript" src="test_data.js"></script>
     <script type="text/javascript" src="main.js"></script>
-    <input type="text" id="input" size="80"></input>
-    <input type="button" value="eval" onClick="startEval()"></input>
-    <a href="#" onclick="moreOptions()">more options</a>
+    <form onSubmit="return enterEval();">
+      <input type="text" id="input" size="80"></input>
+      <input type="button" value="eval" onClick="startEval()"></input>
+      <a href="#" onclick="moreOptions()">more options</a>
+    </form>
     <div id="more_options" style="display:none">
       <select id="evaltype">
         <option value="eval">Eval</option>
