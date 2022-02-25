@@ -1029,6 +1029,8 @@
             (br $loop)))
        (local.get $ret))
 
+ ;;; Note that $nconc can modify a symbol when $lst is a symbol. It even
+ ;;; happens even when $lst is NIL.
  (func $nconc (param $lst i32) (param $elm i32) (result i32)
        (local $ret i32)
        (local.set $ret (local.get $lst))
@@ -1053,9 +1055,11 @@
        (loop $loop
           (if (i32.eqz (local.get $lst))
               (return (local.get $ret)))
-          (local.set
-           $ret
-           (call $nconc (local.get $ret) (call $car (local.get $lst))))
+          (if (i32.eqz (local.get $ret))
+              (local.set $ret (call $car (local.get $lst)))
+              (local.set
+               $ret
+               (call $nconc (local.get $ret) (call $car (local.get $lst)))))
           (local.set $lst (call $cdr (local.get $lst)))
           (br $loop))
        (i32.const 0))
@@ -2243,7 +2247,6 @@
        (call $initsym0 (global.get $sym_pname) (global.get $str_pname))
        (call $initsym0 (global.get $sym_apval) (global.get $str_apval))
        (call $initsym0 (global.get $sym_dot) (global.get $str_dot))
-       (call $initsym0 (global.get $sym_quote) (global.get $str_quote))
        (call $initsym0 (global.get $sym_subr) (global.get $str_subr))
        (call $initsym0 (global.get $sym_fsubr) (global.get $str_fsubr))
        (call $initsym0 (global.get $sym_expr) (global.get $str_expr))
@@ -2270,8 +2273,6 @@
              (global.get $idx_car) (i32.const 1))
        (call $initsymSubr (global.get $sym_cdr) (global.get $str_cdr)
              (global.get $idx_cdr) (i32.const 1))
-       (call $initsymSubr (global.get $sym_cons) (global.get $str_cons)
-             (global.get $idx_cons) (i32.const 2))
        (call $initsymSubr (global.get $sym_cons) (global.get $str_cons)
              (global.get $idx_cons) (i32.const 2))
        (call $initsymSubr (global.get $sym_atom) (global.get $str_atom)
@@ -4313,13 +4314,20 @@
   "(CSETQ RPAR '$$|)|) "
   "(CSETQ COMMA '$$|,|) "
   "(CSETQ PERIOD '$$|.|) "
-  "(CSETQ PLUS '+) "
+  "(CSETQ PLUSS '+) "
   "(CSETQ DASH '-) "
   "(CSETQ STAR '*) "
   "(CSETQ BLANK '$$| |) "
   "(CSETQ EQSIGN '=) "
   "(CSETQ EOF '$EOF$) "
   "(CSETQ EOR '$EOR$) "
+  ;; Ichigo Lisp Utilities
+  "(DEFINE '( "
+  " (REMOVE-IF-NOT (LAMBDA (F LST) (MAPCON LST "
+  "  (FUNCTION (LAMBDA (X) (IF (F (CAR X)) (LIST (CAR X)) NIL)))))) "
+  " (SYMBOLS-WITH (LAMBDA (IND) (REMOVE-IF-NOT "
+  "  (FUNCTION (LAMBDA (X) (GET X IND))) OBLIST)))"
+  "))"
   "NIL "  ;; END OF EXPR/FEXPR/APVAL
   "\00")
 
