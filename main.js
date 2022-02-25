@@ -1,5 +1,5 @@
 var ichigo = new Worker('ichigo.js');
-var ichigo_lock = false;
+var ichigo_lock = true;  // Unlocked when 'init' is sent.
 
 function htmlEscape(str) {
     return str
@@ -11,6 +11,7 @@ function htmlEscape(str) {
 function writeToTerminal(str) {
     var first = true;
     var lines = str.split('\n')
+    var terminal = document.getElementById('terminal');
     for (var i in lines) {
         var line = lines[i];
         var comp = line.indexOf(';');
@@ -26,8 +27,12 @@ function writeToTerminal(str) {
         if (com.length > 0) {
             out += "<span class='comment'>" + htmlEscape(com) + "</span>";
         }
-        document.getElementById('terminal').innerHTML += out;
+        terminal.innerHTML += out;
+        terminal.scrollTop = terminal.scrollHeight;
     }
+}
+function setMessage(str) {
+    document.getElementById('msg').innerText = str;
 }
 
 function startEval() {
@@ -37,6 +42,7 @@ function startEval() {
     } else {
         ichigo_lock = true;
     }
+    setMessage('Evaluating');
 
     var str = document.getElementById('input').value;
     writeToTerminal(str + '\n');
@@ -48,6 +54,7 @@ function startEval() {
 function endEval(sender, out) {
     var sender_type = sender[0];
     if (sender_type == 'eval') {
+        setMessage('Ready');
         writeToTerminal('\n');
         writeToTerminal('> ');
         ichigo_lock = false;
@@ -101,6 +108,8 @@ function checkTest(i, out) {
                         ';; Actual: ' + out);
         num_fail++;
     }
+
+    setMessage('pass: ' + num_pass + '  fail: ' + num_fail + ' (running)');
 }
 function startTest() {
     if (ichigo_lock) {
@@ -115,13 +124,9 @@ function startTest() {
     doTest(0);
 }
 function endTest() {
-    document.getElementById('msg').innerText = 'pass: ' + num_pass +
-        '  fail: ' + num_fail
+    setMessage('pass: ' + num_pass + '  fail: ' + num_fail + ' (finished)');
 }
 
-window.onload = function() {
-    writeToTerminal('> ');
-};
 
 ichigo.onmessage = function(e) {
     if (e.data.length < 2) {
@@ -135,5 +140,9 @@ ichigo.onmessage = function(e) {
     } else if (type == 'print') {
         writeToTerminal(e.data[2]);
     } else if (type == 'debug_level') {
+    } else if (type == 'init') {
+        setMessage('Ready');
+        writeToTerminal('> ');
+        ichigo_lock = false;
     }
 }

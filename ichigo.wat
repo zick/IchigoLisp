@@ -40,15 +40,77 @@
 ;;; The special values are pseudo pointers that cannot be accessed.
 ;;;
 ;;;
-;;; <Terminologies>
+;;; <SYMBOL>
 ;;;
-;;; name: list of fixnums representing packed characters like ("abc" "de\00")
-;;; name1: a fixnum representing packed characters like "abc"
+;;; Symbol is a double-word cell whose CAR contains the special value -4.
+;;; Symbol's CDR represents a property list like (key1 value1 key2 value2 ...).
+;;; So a symbol is a list like (-4 key1 value1 key2 value2 ...). All symbols
+;;; has PNAME as a key, and the corresponding value is a list of fixnums.
+;;; The list is called "name", and the fixnum is called "name1". The "name1"
+;;; contains up to 3 characters. The symbol "HOGE" contains a name which
+;;; consists of two name1-s: "HOG" and "E". So the symbol "HOGE" is a list like
+;;; (-4 PNAME ("HOG" "E")).
+;;;
+;;;
+;;; <HEAP AND STACK>
+;;;
+;;; Heap contains only double-word cells so far (maybe other objects will be
+;;; introduced in the future). Double-word cells contain only Lisp pointers.
+;;; So heap contains only Lisp pointers. Just like heap, stack contains only
+;;; Lisp pointers. If you want to put integers on stack, you need to convert it
+;;; to a fixnum.
+;;;
+;;;
+;;; <MEMORY LAYOUT>
+;;;
+;;; The following layout will very likely change in the future.
+;;;
+;;; +--------------+ 0 (0x0)
+;;; | Primitive    |
+;;; | Lisp         |
+;;; | objects      |
+;;; | like NIL     |
+;;; |              |
+;;; +--------------+ 2000 (0x7d0)
+;;; | Symbol       |
+;;; | name         |
+;;; | strings      |
+;;; |              |
+;;; +--------------+ 5000 (0x1388)
+;;; | Other        |
+;;; | strings      |
+;;; | like         |
+;;; | error        |
+;;; | messages     |
+;;; |              |
+;;; +--------------+ 10240 (0x2800)
+;;; |              |
+;;; | BOFFO etc    |
+;;; |              |
+;;; +--------------+ 40960 (0xa000)
+;;; |              |
+;;; | User         |
+;;; | input        |
+;;; | from JS      |
+;;; |              |
+;;; +--------------+ 65536 (0x10000)
+;;; |              |
+;;; | heap         |
+;;; |              |
+;;; +--------------+ 131072 (0x20000)
+;;; |              |
+;;; | stack        |
+;;; |              |
+;;; +--------------+ 196608 (0x30000)
+;;; |              |
+;;; | Lisp code    |
+;;; | string       |
+;;; |              |
+
 
 (module
  (func $log (import "console" "log") (param i32))
  (func $logstr (import "console" "logstr") (param i32))
- (func $printlnString (import "io" "printlnString") (param i32))
  (func $outputString (import "io" "outputString") (param i32))
  ;; page 0: any
  ;; page 1: free list

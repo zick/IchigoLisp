@@ -15,9 +15,6 @@ var importObject = {
         },
     },
     io: {
-        // TODO: remove this
-        printlnString: function(arg) {
-        },
         outputString: function(arg) {
             last_output = getString(arg);
             postMessage(['wasm', 'print', last_output]);
@@ -53,6 +50,7 @@ WebAssembly.instantiateStreaming(fetch('ichigo.wasm'), importObject)
     .then(obj => {
         ichigo = obj;
         ichigo.instance.exports.init();
+        postMessage(['ichigo', 'init']);
     });
 
 onmessage = function(e) {
