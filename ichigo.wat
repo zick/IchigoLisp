@@ -97,6 +97,7 @@
  (global $cons_count (mut i32) (i32.const 0))
  (global $cons_limit (mut i32) (i32.const 0))
  (global $suppress_error (mut i32) (i32.const 0))
+ (global $debug_level (mut i32) (i32.const 0))
 
  ;;; Symbol strings [2000 - 4095]
  (data (i32.const 2000) "NIL\00")  ;; 4
@@ -525,6 +526,13 @@
  (global $str_err_error i32 (i32.const 5340))
  (data (i32.const 5360) "F1: CONS COUNTER\00")  ;; 17
  (global $str_err_counter i32 (i32.const 5360))
+
+ (func $ilog (param $val i32)
+       (if (i32.ge_s (global.get $debug_level) (i32.const 1))
+           (call $log (local.get $val))))
+ (func $ilogstr (param $val i32)
+       (if (i32.ge_s (global.get $debug_level) (i32.const 1))
+           (call $logstr (local.get $val))))
 
  (func $push (param $val i32)
        (i32.store (global.get $sp) (local.get $val))
@@ -1692,13 +1700,13 @@
   (local $args i32)
   (local.set $ret (i32.const 0))
   (local.set $tracing (i32.const 0))
-  (call $log (i32.const 11111));;;;;
-  (call $log (global.get $sp));;;;;
+  (call $ilog (i32.const 11111))
+  (call $ilog (global.get $sp))
   (call $push (local.get $e))  ;; For GC (e)
   (call $push (local.get $a))  ;; For GC (e a)
   (block $evalbk
     (loop $evallp
-       (if (i32.const 0)  ;; For aggrassive debugging
+       (if (i32.ge_s (global.get $debug_level) (i32.const 2))
            (then
             (call $printObj (local.get $e))
             (call $terprif)))
@@ -1715,7 +1723,6 @@
                         (call $int2fixnum (global.get $cons_count))))
             (br $evalbk)))
        ;; Evaluate an atom (except symbol)
-       (call $log (i32.const 10000001));;;;;
        (if (i32.eqz (local.get $e))
            (then (local.set $ret (i32.const 0))
                  (br $evalbk)))
@@ -1733,7 +1740,6 @@
            (then (local.set $ret (local.get $e))
                  (br $evalbk)))
        ;; Evaluate a symbol
-       (call $log (i32.const 10000002));;;;;
        (if (call $symbolp (local.get $e))
            (then
             ;; Get a value from APVAL
@@ -1755,7 +1761,6 @@
                         (call $makeStrError (global.get $str_err_unbound))
                         (local.get $e)))
             (br $evalbk)))
-       (call $log (i32.const 10000003));;;;;
        (if (i32.eqz (call $consp (local.get $e)))  ;; Unknown object
            (then (local.set
                   $ret
@@ -1763,7 +1768,6 @@
                         (call $makeStrError (global.get $str_err_generic))
                         (local.get $e)))
                  (br $evalbk)))
-       (call $log (i32.const 10000004));;;;;
        ;; Evaluate a compound expression
        (local.set $fn (call $car (local.get $e)))
        (local.set $args (call $cdr (local.get $e)))
@@ -1787,7 +1791,6 @@
                     (local.set $e (local.get $ret))
                     (br $evallp)))
                (br $evalbk)))
-          (call $log (i32.const 10000005));;;;;
           ;; Check if fn is SUBR
           (local.set $tmp
                      (call $get (local.get $fn) (global.get $sym_subr)))
@@ -1898,7 +1901,6 @@
                (br $complp)))
           )  ;; complp
        ;; Note that $args is not protected from GC
-       (call $log (i32.const 10000006));;;;;
        (if (i32.eqz (local.get $applying))
            (local.set $args (call $evlis (local.get $args) (local.get $a))))
        (if (call $errorp (local.get $args))
@@ -1930,7 +1932,6 @@
                              (call $makeStrError (global.get $str_err_nodef))
                              (local.get $fn)))
                       (br $evalbk)))
-            (call $log (i32.const 10000007));;;;;
             (if (i32.eq (call $car (local.get $fn)) (global.get $sym_lambda))
                 (then
                  (call $push (local.get $args))  ;; For GC (e a args)
@@ -1989,9 +1990,9 @@
        ))  ;; evalbk
   (call $drop (call $pop))  ;; For GC (e)
   (call $drop (call $pop))  ;; For GC ()
-  (call $log (global.get $sp));;;;;
-  (call $log (i32.const 22222));;;;;
-  (call $log (local.get $ret));;;;
+  (call $ilog (global.get $sp))
+  (call $ilog (i32.const 22222))
+  (call $ilog (local.get $ret))
   (local.get $ret))
 
  ;;; GARBAGE COLLECTOR
@@ -2199,17 +2200,10 @@
  ;; Creates a symbol with APVAL.
  ;; This function doesn't care GC
  (func $initsym1 (param $sym i32) (param $str i32) (param $val i32)
-       (local $cell i32)
-       (local.set $cell (call $makename (local.get $str)))
-       (local.set $cell (call $cons (local.get $cell) (i32.const 0)))
-       (local.set $cell (call $cons (global.get $sym_pname) (local.get $cell)))
-       (local.set $cell (call $cons
-                              (call $cons (local.get $val) (i32.const 0))
-                              (local.get $cell)))
-       (local.set $cell (call $cons (global.get $sym_apval) (local.get $cell)))
-       (call $setcdr (local.get $sym) (local.get $cell))
-       (call $setcar (local.get $sym) (global.get $tag_symbol))
-       (call $pushToOblist (local.get $sym)))
+       (call $initsymKv
+             (local.get $sym) (local.get $str)
+             (global.get $sym_apval)
+             (call $cons (local.get $val) (i32.const 0))))
  ;; Creates a symbol with a key-value pair.
  ;; This function doesn't care GC
  (func $initsymKv (param $sym i32) (param $str i32)
@@ -3387,19 +3381,14 @@
        (local.set $acc (i32.const -1))
        (call $push (i32.const 0))  ;; Don't need to eval return value
        (loop $loop
-          (call $log (i32.const 333001));;;
           (if (i32.eqz (local.get $args))
               (return (call $int2fixnum (local.get $acc))))
           (local.set
            $val (call $eval (call $car (local.get $args)) (local.get $a)))
-          (call $log (i32.const 333002));;;
           (if (call $errorp (local.get $val))
               (return (local.get $val)))
-          (call $log (i32.const 333003));;;
-          (call $log (local.get $val));;;
           (if (i32.eqz (call $fixnump (local.get $val)))
               (return (call $makeStrError (global.get $str_err_num))))
-          (call $log (i32.const 333004));;;
           (local.set
            $acc (i32.and (call $fixnum2int (local.get $val))
                          (local.get $acc)))
@@ -3535,7 +3524,6 @@
         (local $arg1 i32)
         (local $tmp i32)
         (local.set $arg1 (call $getArg1))
-        (call $log (local.get $arg1))
         (if (i32.and (call $fixnump (local.get $arg1))
                      (i32.ge_s (local.get $arg1) (i32.const 0)))
             (then
@@ -4338,7 +4326,7 @@
           (global.set $printp (i32.const 40960))
           (local.set $ret (call $eval (call $read) (i32.const 0)))
           (call $printObj (local.get $ret))
-          (call $logstr (i32.const 40960))
+          (call $ilogstr (i32.const 40960))
           (br_if $loop (i32.eqz (i32.or
                                  (i32.eq (local.get $ret) (i32.const 0))
                                  (call $errorp (local.get $ret)))))))
@@ -4350,8 +4338,10 @@
 
  (func (export "init")
        (call $init)
-       (call $initexpr)
-)
+       (call $initexpr))
+
+ (func (export "setDebugLevel") (param $level i32)
+       (global.set $debug_level (local.get $level)))
 
  (func (export "readAndEval")
        (local $alist i32)
@@ -4362,13 +4352,9 @@
        (call $printObj
              (call $eval (call $read) (local.get $alist)))
        (if (i32.ne (global.get $sp) (global.get $stack_bottom))
-           (unreachable))  ;; TODO: Show better error messages
+           (then
+            (call $log (i32.const 999001))
+            (call $log (global.get $sp))
+            (unreachable)))  ;; TODO: Show better error messages
        (call $outputString (i32.const 40960)))
-
- (func (export "read")
-       (global.set $printp (i32.const 40960))
-       (call $rdset (i32.const 51200))
-       (call $printObj (call $read))
-       (call $outputString (i32.const 40960)))
-
  )

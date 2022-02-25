@@ -94,7 +94,7 @@
       }
       function runEval() {
           var str = document.getElementById("input").value;
-          writeToTerminal("> " + str + "\n");
+          writeToTerminal(str + "\n");
           document.getElementById("input").value = "";
 
           storeString(str);
@@ -102,17 +102,15 @@
           output = "";
           ichigo.instance.exports.readAndEval();
           writeToTerminal("\n");
+          writeToTerminal("> ");
       }
-      function runRead() {
+      function setDebugLevel() {
           var str = document.getElementById("input").value;
-          writeToTerminal("(read only)> " + str + "\n");
           document.getElementById("input").value = "";
+          var level = Number(str);
 
-          storeString(str);
-          console.log("Input: " + getString(input_address));
-          output = "";
-          ichigo.instance.exports.read();
-          writeToTerminal("\n");
+          console.log("debug_level = " + level);
+          ichigo.instance.exports.setDebugLevel(level);
       }
       var test_data = [
           ["1", "1"],
@@ -434,7 +432,7 @@
           var num_pass = 0, num_fail = 0;
           for (i in test_data) {
               var str = test_data[i][0];
-              writeToTerminal("> " + str + "\n");
+              writeToTerminal(str + "\n");
               storeString(str);
               output = "";
               ichigo.instance.exports.readAndEval();
@@ -456,9 +454,14 @@
                   num_fail++;
               }
           }
+          writeToTerminal("> ");
           document.getElementById("msg").innerText = "pass: " + num_pass +
               "  fail: " + num_fail
       }
+
+      window.onload =function() {
+          writeToTerminal("> ");
+      };
 
       WebAssembly.instantiateStreaming(fetch('ichigo.wasm'), importObject)
     .then(obj => {
@@ -468,7 +471,7 @@
     </script>
     <input type="text" id="input"></input>
     <input type="button" value="eval" onClick="runEval()"></input>
-    <input type="button" value="read" onClick="runRead()"></input>
+    <input type="button" value="debug" onClick="setDebugLevel()"></input>
     <input type="button" value="test" onClick="runTest()"></input>
     <div id="msg" style="color:#0000ff">
     </div>
