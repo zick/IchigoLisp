@@ -1338,23 +1338,46 @@
  (func $makeNum (param $n i32) (result i32)
        (call $int2fixnum (local.get $n)))
 
+ (func $bfseek (param $n i32)
+       (global.set $boffop (i32.add (global.get $boffop) (local.get $n))))
+ (func $peekBoffoN (param $n i32) (result i32)
+       (i32.load8_u (i32.add (global.get $boffop) (local.get $n))))
+ (func $peekBoffo (result i32)
+       (call $peekBoffoN (i32.const 0)))
+ (func $readBoffo (result i32)
+       (local $c i32)
+       (local.set $c (call $peekBoffo))
+       (if (i32.ne (local.get $c) (i32.const 0))
+           (call $bfseek (i32.const 1)))
+       (local.get $c))
+
  ;;; Makes a number of symbol from BOFFO.
  (func $makeNumOrSym (result i32)
        (local $c i32)
        (local $sign i32)
+       (local $base i32)
        (local $is_num i32)
        (local $num i32)
        (local $ret i32)
        (global.set $boffop (global.get $boffo))
        (local.set $sign (i32.const 1))
+       (local.set $base (i32.const 10))
        (local.set $is_num (i32.const 0))
        (local.set $num (i32.const 0))
-       (local.set $c (i32.load8_u (global.get $boffop)))
+       (local.set $c (call $peekBoffo))
        (if (i32.eq (local.get $c) (i32.const 45))  ;; '-'
            (then
             (local.set $sign (i32.const -1))
-            (global.set $boffop (i32.add (global.get $boffop) (i32.const 1)))
-            (local.set $c (i32.load8_u (global.get $boffop)))))
+            (call $bfseek (i32.const 1))
+            (local.set $c (call $peekBoffo))))
+       (if (i32.or (i32.eq (local.get $c) (i32.const 48))  ;; '0'
+                   (i32.eq (local.get $c) (i32.const 35)))  ;; '#'
+           (if (i32.eq (call $peekBoffoN (i32.const 1))
+                       (i32.const 88))  ;; 'X'
+               (then
+                (local.set $base (i32.const 16))
+                (call $bfseek (i32.const 2))
+                (local.set $c (call $peekBoffo)))))
        (block $block
          (loop $loop
             (br_if $block (i32.eqz (local.get $c)))
@@ -1363,14 +1386,27 @@
                  (i32.le_u (local.get $c) (i32.const 57)))
                 (then
                  (local.set $is_num (i32.const 1))
-                 (local.set $num
-                            (i32.add (i32.mul (local.get $num) (i32.const 10))
-                                     (i32.sub (local.get $c) (i32.const 48)))))
+                 (local.set
+                  $num
+                  (i32.add (i32.mul (local.get $num) (local.get $base))
+                           (i32.sub (local.get $c) (i32.const 48)))))
                 (else
-                 (local.set $is_num (i32.const 0))
-                 (br $block)))
-            (global.set $boffop (i32.add (global.get $boffop) (i32.const 1)))
-            (local.set $c (i32.load8_u (global.get $boffop)))
+                 (if (i32.and
+                      (i32.eq (local.get $base) (i32.const 16))
+                      (i32.and  ;; 'A' <= c && c <= 'F'
+                       (i32.le_u (i32.const 65) (local.get $c))
+                       (i32.le_u (local.get $c) (i32.const 70))))
+                     (then
+                      (local.set $is_num (i32.const 1))
+                      (local.set
+                       $num
+                       (i32.add (i32.mul (local.get $num) (local.get $base))
+                                (i32.sub (local.get $c) (i32.const 55)))))
+                     (else
+                      (local.set $is_num (i32.const 0))
+                      (br $block)))))
+            (call $bfseek (i32.const 1))
+            (local.set $c (call $peekBoffo))
             (br $loop)))
        (global.set $boffop (global.get $boffo))
        (if (local.get $is_num)
