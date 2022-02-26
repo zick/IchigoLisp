@@ -56,9 +56,10 @@
 ;;;
 ;;; Heap contains only double-word cells so far (maybe other objects will be
 ;;; introduced in the future). Double-word cells contain only Lisp pointers.
-;;; So heap contains only Lisp pointers. Just like heap, stack contains only
-;;; Lisp pointers. If you want to put integers on stack, you need to convert it
-;;; to a fixnum.
+;;; So heap contains only Lisp pointers. Stack contains only Lisp pointers
+;;; (rather than double-word cells). An integer must be converted into a fixnum
+;;; when pushing it to stack. Double-word cells pointed from stack are
+;;; protected from garbage collector.
 ;;;
 ;;;
 ;;; <MEMORY LAYOUT>
@@ -112,6 +113,7 @@
  (func $log (import "console" "log") (param i32))
  (func $logstr (import "console" "logstr") (param i32))
  (func $outputString (import "io" "outputString") (param i32))
+ ;; WebAssembly page size is 64KB.
  ;; page 0: any
  ;; page 1: free list
  ;; page 2: stack
@@ -128,17 +130,17 @@
  (global $tag_symbol i32 (i32.const -4))
  (global $tag_error i32 (i32.const -12))
 
- ;; start address of the heap (inclusive)
+ ;;; Start address of the heap (inclusive)
  (global $heap_start (mut i32) (i32.const 65536))
- ;; points to the head of free list
+ ;;; Points to the head of free list
  (global $fp (mut i32) (i32.const 65536))
- ;; fill pointer of heap
+ ;;; Fill pointer of heap
  (global $fillp (mut i32) (i32.const 0))
- ;; end address of the heap (exclusive)
+ ;;; End address of the heap (exclusive)
  (global $heap_end (mut i32) (i32.const 131072))
- ;; address of stack bottom
+ ;;; Address of stack bottom (inclusive)
  (global $stack_bottom (mut i32) (i32.const 131072))
- ;; stack pointer
+ ;;; Stack pointer
  (global $sp (mut i32) (i32.const 131072))
 
  (global $boffo i32 (i32.const 10240))
@@ -609,7 +611,7 @@
  (func $fixnum2int (param $n i32) (result i32)
        (i32.shr_s (local.get $n) (i32.const 2)))
 
- ;;; Returns whether obj is a fixnum
+ ;;; Returns whether obj is a fixnum.
  (func $fixnump (param $obj i32) (result i32)
        (i32.eq (i32.and (local.get $obj) (i32.const 2))
                (i32.const 2)))
