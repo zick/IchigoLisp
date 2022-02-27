@@ -431,6 +431,8 @@
  (global $str_loadwasm i32 (i32.const 3300))
  (data (i32.const 3310) "NEXT-SUBR\00")  ;; 10
  (global $str_nextsubr i32 (i32.const 3310))
+ (data (i32.const 3320) "FENCODE\00")  ;; 8
+ (global $str_fencode i32 (i32.const 3320))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -568,7 +570,8 @@
  (global $sym_bdump i32 (i32.const 0x0420))
  (global $sym_loadwasm i32 (i32.const 0x0428))
  (global $sym_nextsubr i32 (i32.const 0x0430))
- (global $primitive_obj_end i32 (i32.const 0x0438))
+ (global $sym_fencode i32 (i32.const 0x0438))
+ (global $primitive_obj_end i32 (i32.const 0x0440))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -615,6 +618,21 @@
        (if (i32.ge_s (global.get $debug_level) (i32.const 1))
            (call $logstr (local.get $val))))
 
+ (elem (i32.const 0) $getsp)  ;; v2i
+ (elem (i32.const 1) $push)  ;; i2v
+ (elem (i32.const 2) $pop)  ;; v2i
+ (elem (i32.const 3) $drop)  ;; i2v
+ (elem (i32.const 4) $car)  ;; i2i
+ (elem (i32.const 5) $cdr)  ;; i2i
+
+ (elem (i32.const 10) $getAArgFInSubr)  ;; i2i
+ (elem (i32.const 11) $getArgF1)  ;; i2i
+ (elem (i32.const 12) $getArgF2)  ;; i2i
+ (elem (i32.const 13) $getArgF3)  ;; i2i
+ (elem (i32.const 14) $getArgF4)  ;; i2i
+
+ (func $getsp (result i32)
+       (global.get $sp))
  (func $push (param $val i32)
        (i32.store (global.get $sp) (local.get $val))
        (global.set $sp (i32.add (global.get $sp) (i32.const 4))))
@@ -2580,6 +2598,8 @@
        (call $initsymSubr (global.get $sym_nextsubr)
              (global.get $str_nextsubr)
              (global.get $idx_nextsubr) (i32.const 0))
+       (call $initsymSubr (global.get $sym_fencode) (global.get $str_fencode)
+             (global.get $idx_fencode) (i32.const 1))
 
        ;;; FSUBR
        (call $initsymKv
@@ -2676,19 +2696,34 @@
  ;;; FSUBR stack: (..., e, a)  e is an expression like (QUOTE A)
  ;;; FSUBR stack after eval: (..., e, a, E)  E!=0: need to eval return value
 
+ ;;; Returns the arguments from SUBR stack using frame pointer
+ ;;; The frame pointer points just above arguments.
+ (func $getArgF1 (param $fmp i32) (result i32)
+      (i32.load (i32.sub (local.get $fmp) (i32.const 16))))
+ (func $getArgF2 (param $fmp i32) (result i32)
+      (i32.load (i32.sub (local.get $fmp) (i32.const 12))))
+ (func $getArgF3 (param $fmp i32) (result i32)
+      (i32.load (i32.sub (local.get $fmp) (i32.const 8))))
+ (func $getArgFRest (param $fmp i32) (result i32)
+      (i32.load (i32.sub (local.get $fmp) (i32.const 4))))
+ (func $getArgF4 (param $fmp i32) (result i32)
+      (call $safecar (call $getArgRest)))
+ (func $getAArgFInSubr (param $fmp i32) (result i32)
+      (i32.load (i32.sub (local.get $fmp) (i32.const 20))))
+
  ;;; Returns the arguments from SUBR stack
  (func $getArg1 (result i32)
-      (i32.load (i32.sub (global.get $sp) (i32.const 16))))
+       (call $getArgF1 (global.get $sp)))
  (func $getArg2 (result i32)
-      (i32.load (i32.sub (global.get $sp) (i32.const 12))))
+       (call $getArgF2 (global.get $sp)))
  (func $getArg3 (result i32)
-      (i32.load (i32.sub (global.get $sp) (i32.const 8))))
+       (call $getArgF3 (global.get $sp)))
  (func $getArgRest (result i32)
-      (i32.load (i32.sub (global.get $sp) (i32.const 4))))
+       (call $getArgFRest (global.get $sp)))
  (func $getArg4 (result i32)
-      (call $safecar (call $getArgRest)))
+       (call $getArgF4 (global.get $sp)))
  (func $getAArgInSubr (result i32)
-      (i32.load (i32.sub (global.get $sp) (i32.const 20))))
+       (call $getAArgFInSubr (global.get $sp)))
 
  ;;; Returns the arguments from FSUBR stack
  (func $getEArg (result i32)
@@ -2902,6 +2937,8 @@
  (global $idx_loadwasm i32 (i32.const 201))
  (elem (i32.const 202) $subr_nextsubr)
  (global $idx_nextsubr i32 (i32.const 202))
+ (elem (i32.const 203) $subr_fencode)
+ (global $idx_fencode i32 (i32.const 203))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -4421,6 +4458,14 @@
 
    (func $subr_nextsubr (result i32)
          (call $int2fixnum (global.get $next_subr)))
+
+   (func $subr_fencode (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         (if (i32.ge_u (local.get $arg1) (i32.const 0xc0000000))
+             ;; TODO: Return the specific error
+             (return (call $makeStrError (global.get $str_err_generic))))
+         (call $int2fixnum (local.get $arg1)))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL
@@ -4488,6 +4533,11 @@
   " (CADR (LAMBDA (X) (CAR (CDR X)))) "
   " (CDAR (LAMBDA (X) (CDR (CAR X)))) "
   " (CDDR (LAMBDA (X) (CDR (CDR X)))) "
+  " (CONSP (LAMBDA (X) (NOT (ATOM X)))) "
+  " (SYMBOLP (LAMBDA (X) (AND (ATOM X) (NOT (NUMBERP X))))) "
+  " (POSITION (LAMBDA (KEY LST) ((LABEL REC (LAMBDA (L N) "
+  "  (COND ((NULL L) NIL) ((EQ (CAR L) KEY) N) (T (REC (CDR L) (1+ N)))))) "
+  "  LST 0))) "
   " (REMOVE-IF-NOT (LAMBDA (F LST) (MAPCON LST "
   "  (FUNCTION (LAMBDA (X) (IF (F (CAR X)) (LIST (CAR X)) NIL)))))) "
   " (SYMBOLS-WITH (LAMBDA (IND) (REMOVE-IF-NOT "
@@ -4522,11 +4572,20 @@
   ")) "
   "(DE C::TYPE-SECTION () (PROG () "
   " (BWRITE 0x01) "  ;; section number
-  " (BWRITE 0x05) "  ;; section size
-  " (BWRITE 0x01) "  ;; 1 entry
-  " (BWRITE 0x60) "  ;; functype
+  " (BWRITE 0x0e) "  ;; section size
+  " (BWRITE 0x03) "  ;; 3 entry
+  " (BWRITE 0x60) "  ;; functype (void -> i32)
   " (BWRITE 0x00) "  ;; no arguments
+  " (BWRITE 0x01) "  ;; 1 value
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x60) "  ;; functype (i32 -> void)
   " (BWRITE 0x01) "  ;; 1 parameter
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x00) "  ;; 0 value
+  " (BWRITE 0x60) "  ;; functype (i32 -> i32)
+  " (BWRITE 0x01) "  ;; 1 parameter
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x01) "  ;; 1 value
   " (BWRITE 0x7f) "  ;; i32
   ")) "
   "(DE C::IMPORT-SECTION (MEM TBL) (PROG (MS TS SS)"
@@ -4547,9 +4606,9 @@
   " (BWRITE 0x03) "  ;; section number
   " (BWRITE 0x02) "  ;; section size
   " (BWRITE 0x01) "  ;; 1 entry
-  " (BWRITE 0x00) "  ;; type index 0 (see type section)
+  " (BWRITE 0x00) "  ;; type index 0 (v2i)
   ")) "
- "(DE C::ELM-SECTION (SIDX) (PROG (I) "
+  "(DE C::ELM-SECTION (SIDX) (PROG (I) "
   " (SETQ I (ULEB128 SIDX)) "
   " (BWRITE 0x09) "  ;; section number
   " (BWRITE (+ 0x06 (LENGTH I))) "  ;; section size
@@ -4561,52 +4620,103 @@
   " (BWRITE 0x01) "  ;; 1 function
   " (BWRITE 0x00) "  ;; function index 0 (see function section)
   ")) "
- "(DE C::CODE-SECTION (P) (PROG (N) "
-  " (SETQ N (LEB128 P)) "
+  "(DE C::CODE-SECTION (ASM) (PROG (INST) "
+  " (SETQ INST (C::ASSEMBLE-CODE ASM)) "
   " (BWRITE 0x0a) "  ;; section number
-  " (BWRITE (+ 0x05 (LENGTH N))) "  ;; section size
+  " (BWRITE (+ 0x0d (LENGTH INST))) "  ;; section size
   " (BWRITE 0x01) "  ;; 1 entry
-  " (BWRITE (+ 0x03 (LENGTH N))) "  ;; code size
-  " (BWRITE 0x00) "  ;; 0 local variables
+  " (BWRITE (+ 0x0b (LENGTH INST))) "  ;; code size
+  " (BWRITE 0x01) "  ;; 1 local variable ($frame)
+  " (BWRITE 0x01) "  ;; 1 local variable with the same type ($frame)
+  " (BWRITE 0x7f) "  ;; i32
+  ;; Init frame pointer
   " (BWRITE 0x41) "  ;; i32.const
-  " (BWRITES N) "
+  " (BWRITE 0x00) "  ;; 0 ($getsp)
+  " (BWRITE 0x11) "  ;; call_indirect
+  " (BWRITE 0x00) "  ;; type index 0 (v2i)
+  " (BWRITE 0x00) "  ;; end of call_indirect
+  " (BWRITE 0x21) "  ;; local.set
+  " (BWRITE 0x00) "  ;; local index 0 ($frame)
+  ;;; Body instructions
+  " (BWRITES INST) "
   " (BWRITE 0x0b) "  ;; end
   ")) "
-  "(DE C::WRITE () (PROG (SIDX) "  ;; Testing purpose
+  "(DE C::ASSEMBLE (ASM) (PROG (SIDX) "
   " (SETQ SIDX (NEXT-SUBR)) "
-  " (C::WASM-HEADER) "
-  " (C::TYPE-SECTION) "
-  " (C::IMPORT-SECTION 4 512) "
-  " (C::FUNC-SECTION) "
-  " (C::ELM-SECTION SIDX) "
-  " (C::CODE-SECTION 170) "
-  ")) "
-  "(DE C::ASSEMBLE (N) (PROG (SIDX C) "
-  " (SETQ SIDX (NEXT-SUBR)) "
-  " (SETQ C (+ (LEFTSHIFT N 2) 2)) "
   " (C::WASM-HEADER )"
   " (C::TYPE-SECTION) "
   " (C::IMPORT-SECTION 4 512) "
   " (C::FUNC-SECTION) "
   " (C::ELM-SECTION SIDX) "
-  " (C::CODE-SECTION C) "
+  " (C::CODE-SECTION ASM) "
   ")) "
+  "(DE C::ASSEMBLE-CODE (X) "
+  " (COND "
+  "  ((ATOM X) (C::ASSEMBLE-ATOM X)) "
+  "  ((EQ (CAR X) 'CONST) (C::ASSEMBLE-CONST (CADR X))) "
+  "  ((EQ (CAR X) 'CALL) (C::ASSEMBLE-CALL (CDR X))) "
+  "  ((EQ (CAR X) 'LOAD) (C::ASSEMBLE-LOAD (CDR X))) "
+  "  (T (ERROR (SYMCAT (CAR X) '$$| is not asm opcode|))))) "
+  "(DE C::ASSEMBLE-ATOM (X) "
+  " (COND "
+  "  ((FIXP X) (CONS 0x41 (LEB128 X))) "
+  "  (T (ERROR (SYMCAT X '$$| is not supported asm instruction|))))) "
+  "(DE C::ENCODE-FIXNUM (X) "
+  " (+ (LEFTSHIFT X 2) 2)) "
+  "(DE C::ASSEMBLE-CONST (X) "  ;; X of (CONST X)
+  " (COND "
+  "  ((NULL X) (LIST 0x41 0x00)) "
+  "  ((FIXP X) (CONS 0x41 (LEB128 (C::ENCODE-FIXNUM X)))) "
+  "  ((OR (SYMBOLP X) (CONSP X)) (CONS 0x41 (LEB128 (FENCODE X)))) "
+  "  (T (ERROR (SYMCAT X '$$| is not supported const|))))) "
+  "(DE C::ASSEMBLE-TYPE (X) "
+  " (COND "
+  "  ((EQ X 'V2I) 0) "
+  "  ((EQ X 'I2V) 1) "
+  "  ((EQ X 'I2I) 2) "
+  "  (T (ERROR (SYMCAT X '$$| is not supported type|))))) "
+  "(DE C::ASSEMBLE-CALL (X) "  ;; X of (CALL . X=(TYPE . ARGS))
+  ;; Push arguments, then call the function.
+  " (NCONC "
+  "  (MAPCON (CDR X) (FUNCTION (LAMBDA (Y) "
+  "   (C::ASSEMBLE-CODE (CAR Y))))) "
+  "  (LIST 0x11 (C::ASSEMBLE-TYPE (CAR X)) 0x00))) "  ;; call_indirect
+  "(DE C::ASSEMBLE-LOAD (X) "  ;; X of (LOAD . X=(CELL))
+  " (NCONC "
+  "  (MAPCON X (FUNCTION (LAMBDA (Y) "
+  "   (C::ASSEMBLE-CODE (CAR Y))))) "
+  "  (LIST 0x28 0x02 0x00))) "  ;; align=2 (I'm not sure if it's necessary)
+  "(DE C::COMPILE-ARG (N) "
+  " (LIST 'CALL 'I2I (LIST 'CALL 'V2I 0) (+ 11 N))) " ;; 0: getsp, 11: getArgF1
+  "(DE C::COMPILE-APVAL (CELL) "
+  " (LIST 'CALL 'I2I "
+  "  (LIST 'LOAD (LIST 'CONST CELL)) "
+  "  4))"  ;; 4: car
+  "(DE C::COMPILE-ATOM (X ARGS) "
+  " (COND "
+  "  ((NULL X) (LIST 'CONST NIL)) "
+  "  ((FIXP X) (LIST 'CONST X)) "
+  "  ((GET X 'APVAL) (C::COMPILE-APVAL (PROP X 'APVAL))) "
+  "  ((POSITION X ARGS) (C::COMPILE-ARG (POSITION X ARGS))) "
+  "  (T (ERROR (SYMCAT X '$$| is not supported atom|))))) "
+  "(DE C::COMPILE-CODE (SYM ARGS X) "
+  " (COND "
+  "  ((ATOM X) (C::COMPILE-ATOM X ARGS)) "
+  "  (T (ERROR '$$|Unsupported Lisp code|)))) "
   "(DE C::VERIFY0 (SYM FN) (PROG () "
   " (IF (ATOM FN) (ERROR (SYMCAT SYM '$$| is not a function|))) "
   " (IF (NOT (EQ (CAR FN) 'LAMBDA)) "
   "  (ERROR (SYMCAT SYM '$$| is not a lambda|))) "
-  " (IF (NOT (EQ (LENGTH (CADR FN)) 0)) "  ;; TODO: Remove this restriction
-  "  (ERROR '$$|arguments are not supported|)) "
+  " (IF (> (LENGTH (CADR FN)) 4) "  ;; TODO: Remove this restriction
+  "  (ERROR '$$|more than 4 arguments are not supported|)) "
   " (IF (NOT (ATOM (CAR (CDDR FN)))) "  ;; TODO: Remove this restriction
   "  (ERROR '$$|compound expression is not supported|)) "
-  " (IF (NOT (FIXP (CAR (CDDR FN)))) "  ;; TODO: Remove this restriction
-  "  (ERROR '$$|non-fixnum is not supported|)) "
-  " ))"
+  " )) "
   "(DE C::COMPILE1 (SYM) (PROG (FN) "
   " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
   " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR|))) "
   " (C::VERIFY0 SYM FN) "
-  " (C::ASSEMBLE (CAR (CDDR FN))) "
+  " (C::ASSEMBLE (C::COMPILE-CODE SYM (CADR FN) (CAR (CDDR FN)))) "
   " (PUTPROP SYM (LIST (LOAD-WASM) (LENGTH (CADR FN))) 'SUBR) "
   " (REMPROP SYM 'EXPR) "  ;; TODO: Support FEXPR
   " ))"
