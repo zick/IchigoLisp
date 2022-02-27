@@ -1,10 +1,11 @@
+var modules = [];
 var last_output = '';
 var memory = new WebAssembly.Memory({initial: 4});
 var importObject = {
     js: {
         memory: memory,
         table : new WebAssembly.Table(
-            {initial: 256, element: 'anyfunc'}),
+            {initial: 512, element: 'anyfunc'}),
     },
     console: {
         log: function(arg) {
@@ -19,6 +20,13 @@ var importObject = {
             last_output = getString(arg);
             postMessage(['wasm', 'print', last_output]);
         },
+        loadWasm: function(pos, size) {
+            var bytes = getBinary(pos, size);
+            WebAssembly.instantiate(bytes, importObject)
+                .then(obj => {
+                    modules.push(obj);
+                });
+        }
     },
 };
 
@@ -38,6 +46,10 @@ function getString(address) {
     while (i8[end] != 0) { end++; }
     var bytes = new Uint8Array(memory.buffer, start, end - start);
     return new TextDecoder('utf8').decode(bytes);
+}
+function getBinary(address, size) {
+    var i8 = new Uint8Array(memory.buffer);
+    return new Uint8Array(memory.buffer, address, size);
 }
 
 function Eval(str) {

@@ -113,13 +113,14 @@
  (func $log (import "console" "log") (param i32))
  (func $logstr (import "console" "logstr") (param i32))
  (func $outputString (import "io" "outputString") (param i32))
+ (func $loadWasm (import "io" "loadWasm") (param i32) (param i32))
  ;; WebAssembly page size is 64KB.
  ;; page 0: any
  ;; page 1: free list
  ;; page 2: stack
  ;; page 3: expr/fexpr
  (import "js" "memory" (memory 4))
- (import "js" "table" (table 256 funcref))
+ (import "js" "table" (table 512 funcref))
 
  (type $subr_type (func (result i32)))
  (type $fsubr_type (func (result i32)))
@@ -150,6 +151,10 @@
  (global $read_start (mut i32) (i32.const 0))
  (global $readp (mut i32) (i32.const 0))
  (global $printp (mut i32) (i32.const 0))
+
+ (global $bwrite_start (mut i32) (i32.const 229376))  ;; 64KB*3 + 32KB
+ (global $bwritep (mut i32) (i32.const 229376))
+ (global $next_subr (mut i32) (i32.const 300))
 
  (global $oblist (mut i32) (i32.const 0))
  (global $gensym_num (mut i32) (i32.const 0))
@@ -418,6 +423,14 @@
  (global $str_speak i32 (i32.const 3260))
  (data (i32.const 3270) "ERRORSET\00")  ;; 9
  (global $str_errorset i32 (i32.const 3270))
+ (data (i32.const 3280) "BWRITE\00")  ;; 7
+ (global $str_bwrite i32 (i32.const 3280))
+ (data (i32.const 3290) "BDUMP\00")  ;; 6
+ (global $str_bdump i32 (i32.const 3290))
+ (data (i32.const 3300) "LOAD-WASM\00")  ;; 10
+ (global $str_loadwasm i32 (i32.const 3300))
+ (data (i32.const 3310) "NEXT-SUBR\00")  ;; 10
+ (global $str_nextsubr i32 (i32.const 3310))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -551,7 +564,11 @@
  (global $sym_uncount i32 (i32.const 0x0400))
  (global $sym_speak i32 (i32.const 0x0f08))
  (global $sym_errorset i32 (i32.const 0x0410))
- (global $primitive_obj_end i32 (i32.const 0x0418))
+ (global $sym_bwrite i32 (i32.const 0x0418))
+ (global $sym_bdump i32 (i32.const 0x0420))
+ (global $sym_loadwasm i32 (i32.const 0x0428))
+ (global $sym_nextsubr i32 (i32.const 0x0430))
+ (global $primitive_obj_end i32 (i32.const 0x0438))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -2553,6 +2570,16 @@
              (global.get $idx_speak) (i32.const 1))
        (call $initsymSubr (global.get $sym_errorset) (global.get $str_errorset)
              (global.get $idx_errorset) (i32.const 4))
+       (call $initsymSubr (global.get $sym_bwrite) (global.get $str_bwrite)
+             (global.get $idx_bwrite) (i32.const 1))
+       (call $initsymSubr (global.get $sym_bdump) (global.get $str_bdump)
+             (global.get $idx_bdump) (i32.const 0))
+       (call $initsymSubr (global.get $sym_loadwasm)
+             (global.get $str_loadwasm)
+             (global.get $idx_loadwasm) (i32.const 0))
+       (call $initsymSubr (global.get $sym_nextsubr)
+             (global.get $str_nextsubr)
+             (global.get $idx_nextsubr) (i32.const 0))
 
        ;;; FSUBR
        (call $initsymKv
@@ -2867,6 +2894,14 @@
  (global $idx_speak i32 (i32.const 197))
  (elem (i32.const 198) $subr_errorset)
  (global $idx_errorset i32 (i32.const 198))
+ (elem (i32.const 199) $subr_bwrite)
+ (global $idx_bwrite i32 (i32.const 199))
+ (elem (i32.const 200) $subr_bdump)
+ (global $idx_bdump i32 (i32.const 200))
+ (elem (i32.const 201) $subr_loadwasm)
+ (global $idx_loadwasm i32 (i32.const 201))
+ (elem (i32.const 202) $subr_nextsubr)
+ (global $idx_nextsubr i32 (i32.const 202))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -4249,26 +4284,12 @@
          (local.set $arg2 (call $getArg2))
          (call $evlis (local.get $arg1) (local.get $arg2)))
 
-   (func $subr_dump (result i32)
-         (local $arg1 i32)
-         (local $arg2 i32)
-         (local $arg3 i32)
-         (local $arg4 i32)
-         (local $low i32)
-         (local $high i32)
-         (local.set $arg1 (call $getArg1))
-         (local.set $arg2 (call $getArg2))
-         (local.set $arg3 (call $getArg3))
-         (local.set $arg4 (call $getArg4))
+   (func $dump (param $low i32) (param $high i32) (result i32)
          ;; 8-byte align
-         (local.set $low (call $fixnum2int (local.get $arg1)))
          (local.set $low (i32.and (local.get $low) (i32.const 0xfffffff8)))
-         (local.set $high (call $fixnum2int (local.get $arg2)))
          (local.set
           $high (i32.and (i32.add (local.get $high) (i32.const 7))
                          (i32.const 0xfffffff8)))
-         (call $printObj (local.get $arg4))
-         (call $terprif)
          (call $printString (global.get $str_msg_dump_header))
          (call $terprif)
          (loop $loop
@@ -4289,6 +4310,20 @@
             (local.set $low (i32.add (local.get $low) (i32.const 8)))
             (br $loop))
          (i32.const 0))
+   (func $subr_dump (result i32)
+         (local $arg1 i32)
+         (local $arg2 i32)
+         (local $arg3 i32)
+         (local $arg4 i32)
+         (local.set $arg1 (call $getArg1))
+         (local.set $arg2 (call $getArg2))
+         (local.set $arg3 (call $getArg3))
+         (local.set $arg4 (call $getArg4))
+         (call $printObj (local.get $arg4))
+         (call $terprif)
+         (call $dump
+               (call $fixnum2int (local.get $arg1))
+               (call $fixnum2int (local.get $arg2))))
 
    (func $subr_error (result i32)
          (local $arg1 i32)
@@ -4361,6 +4396,31 @@
              (return (i32.const 0)))
          (local.set $ret (call $cons (local.get $val) (i32.const 0)))
          (local.get $ret))
+
+   (func $subr_bwrite (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         (i32.store8
+          (global.get $bwritep) (call $fixnum2int (local.get $arg1)))
+         (global.set $bwritep (i32.add (global.get $bwritep) (i32.const 1)))
+         (local.get $arg1))
+
+   (func $subr_bdump (result i32)
+         (call $dump (global.get $bwrite_start) (global.get $bwritep)))
+
+   (func $subr_loadwasm (result i32)
+         (local $ret i32)
+         (call $loadWasm
+               (global.get $bwrite_start)
+               (i32.sub (global.get $bwritep) (global.get $bwrite_start)))
+         (local.set $ret (call $int2fixnum (global.get $next_subr)))
+         (global.set
+          $next_subr (i32.add (global.get $next_subr) (i32.const 1)))
+         (global.set $bwritep (global.get $bwrite_start))
+         (local.get $ret))
+
+   (func $subr_nextsubr (result i32)
+         (call $int2fixnum (global.get $next_subr)))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL
@@ -4423,11 +4483,135 @@
   " (DF (LAMBDA (S A) (PUTPROP (CAR S) (CONS 'LAMBDA (CDR S)) 'FEXPR)))"
   ") 'FEXPR) "
   "(DEFINE '( "
+  " (NOT (LAMBDA (X) (NULL X))) "
+  " (CAAR (LAMBDA (X) (CAR (CAR X)))) "
+  " (CADR (LAMBDA (X) (CAR (CDR X)))) "
+  " (CDAR (LAMBDA (X) (CDR (CAR X)))) "
+  " (CDDR (LAMBDA (X) (CDR (CDR X)))) "
   " (REMOVE-IF-NOT (LAMBDA (F LST) (MAPCON LST "
   "  (FUNCTION (LAMBDA (X) (IF (F (CAR X)) (LIST (CAR X)) NIL)))))) "
   " (SYMBOLS-WITH (LAMBDA (IND) (REMOVE-IF-NOT "
   "  (FUNCTION (LAMBDA (X) (GET X IND))) OBLIST)))"
+  " (BWRITES (LAMBDA (LST) (MAP LST "
+  "  (FUNCTION (LAMBDA (X) (BWRITE (CAR X))))))) "
+  " (SYMCAT (LAMBDA (X Y) (PROG2 (MAP (NCONC (UNPACK X) (UNPACK Y)) "
+  "  (FUNCTION (LAMBDA (X) (PACK (CAR X))))) "
+  "  (INTERN (MKNAM))))) "
+  ")) "
+  ;; Compiler (WIP)
+  ;; https://en.wikipedia.org/wiki/LEB128
+  "(DE ULEB128 (N) (PROG (B V) "
+  " (SETQ B (LOGAND N 0x7F)) "
+  ;; Suppress sign extension. Note that fixnum is 30 bit.
+  " (SETQ V (LOGAND (LEFTSHIFT N -7) 0x7fffff)) "
+  " (RETURN "
+  "  (IF (ZEROP V) "
+  "   (CONS B NIL) "
+  "   (CONS (LOGOR B 0x80) (ULEB128 V)))))) "
+  "(DE LEB128 (N) (PROG (B V) "
+  " (SETQ B (LOGAND N 0x7F)) "
+  " (SETQ V (LEFTSHIFT N -7)) "
+  " (RETURN "
+  "  (IF (OR (AND (ZEROP V) (ZEROP (LOGAND B 0x40))) "
+  "          (AND (EQ V -1) (NOT (ZEROP (LOGAND B 0x40))))) "
+  "   (CONS B NIL) "
+  "   (CONS (LOGOR B 0x80) (LEB128 V)))))) "
+  "(DE C::WASM-HEADER () (PROG () "
+  " (BWRITES '(0x00 0x61 0x73 0x6d)) "
+  " (BWRITES '(0x01 0x00 0x00 0x00)) "
+  ")) "
+  "(DE C::TYPE-SECTION () (PROG () "
+  " (BWRITE 0x01) "  ;; section number
+  " (BWRITE 0x05) "  ;; section size
+  " (BWRITE 0x01) "  ;; 1 entry
+  " (BWRITE 0x60) "  ;; functype
+  " (BWRITE 0x00) "  ;; no arguments
+  " (BWRITE 0x01) "  ;; 1 parameter
+  " (BWRITE 0x7f) "  ;; i32
+  ")) "
+  "(DE C::IMPORT-SECTION (MEM TBL) (PROG (MS TS SS)"
+  " (SETQ MS (ULEB128 MEM)) "
+  " (SETQ TS (ULEB128 TBL)) "
+  " (SETQ SS (+ 0x19 (LENGTH MS) (LENGTH TS))) "
+  " (BWRITE 0x02) "  ;; section number
+  " (BWRITE SS) "  ;; section size
+  " (BWRITE 0x02) "  ;; 2 entries
+  ;; "js" "memory" memory limit is ...
+  " (BWRITES '(0x02 0x6a 0x73 0x06 0x6d 0x65 0x6d 0x6f 0x72 0x79 0x02 0x00)) "
+  " (BWRITES MS) "  ;; memory size
+  ;; "js" "table" table limit is ...
+  " (BWRITES '(0x02 0x6a 0x73 0x05 0x74 0x61 0x62 0x6c 0x65 0x01 0x70 0x00)) "
+  " (BWRITES TS) "  ;; table size
   "))"
+  "(DE C::FUNC-SECTION () (PROG () "
+  " (BWRITE 0x03) "  ;; section number
+  " (BWRITE 0x02) "  ;; section size
+  " (BWRITE 0x01) "  ;; 1 entry
+  " (BWRITE 0x00) "  ;; type index 0 (see type section)
+  ")) "
+ "(DE C::ELM-SECTION (SIDX) (PROG (I) "
+  " (SETQ I (ULEB128 SIDX)) "
+  " (BWRITE 0x09) "  ;; section number
+  " (BWRITE (+ 0x06 (LENGTH I))) "  ;; section size
+  " (BWRITE 0x01) "  ;; 1 entry
+  " (BWRITE 0x00) "  ;; table index 0
+  " (BWRITE 0x41) "  ;; i32.const
+  " (BWRITES I) "
+  " (BWRITE 0x0b) "  ;; end
+  " (BWRITE 0x01) "  ;; 1 function
+  " (BWRITE 0x00) "  ;; function index 0 (see function section)
+  ")) "
+ "(DE C::CODE-SECTION (P) (PROG (N) "
+  " (SETQ N (LEB128 P)) "
+  " (BWRITE 0x0a) "  ;; section number
+  " (BWRITE (+ 0x05 (LENGTH N))) "  ;; section size
+  " (BWRITE 0x01) "  ;; 1 entry
+  " (BWRITE (+ 0x03 (LENGTH N))) "  ;; code size
+  " (BWRITE 0x00) "  ;; 0 local variables
+  " (BWRITE 0x41) "  ;; i32.const
+  " (BWRITES N) "
+  " (BWRITE 0x0b) "  ;; end
+  ")) "
+  "(DE C::WRITE () (PROG (SIDX) "  ;; Testing purpose
+  " (SETQ SIDX (NEXT-SUBR)) "
+  " (C::WASM-HEADER) "
+  " (C::TYPE-SECTION) "
+  " (C::IMPORT-SECTION 4 512) "
+  " (C::FUNC-SECTION) "
+  " (C::ELM-SECTION SIDX) "
+  " (C::CODE-SECTION 170) "
+  ")) "
+  "(DE C::ASSEMBLE (N) (PROG (SIDX C) "
+  " (SETQ SIDX (NEXT-SUBR)) "
+  " (SETQ C (+ (LEFTSHIFT N 2) 2)) "
+  " (C::WASM-HEADER )"
+  " (C::TYPE-SECTION) "
+  " (C::IMPORT-SECTION 4 512) "
+  " (C::FUNC-SECTION) "
+  " (C::ELM-SECTION SIDX) "
+  " (C::CODE-SECTION C) "
+  ")) "
+  "(DE C::VERIFY0 (SYM FN) (PROG () "
+  " (IF (ATOM FN) (ERROR (SYMCAT SYM '$$| is not a function|))) "
+  " (IF (NOT (EQ (CAR FN) 'LAMBDA)) "
+  "  (ERROR (SYMCAT SYM '$$| is not a lambda|))) "
+  " (IF (NOT (EQ (LENGTH (CADR FN)) 0)) "  ;; TODO: Remove this restriction
+  "  (ERROR '$$|arguments are not supported|)) "
+  " (IF (NOT (ATOM (CAR (CDDR FN)))) "  ;; TODO: Remove this restriction
+  "  (ERROR '$$|compound expression is not supported|)) "
+  " (IF (NOT (FIXP (CAR (CDDR FN)))) "  ;; TODO: Remove this restriction
+  "  (ERROR '$$|non-fixnum is not supported|)) "
+  " ))"
+  "(DE C::COMPILE1 (SYM) (PROG (FN) "
+  " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
+  " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR|))) "
+  " (C::VERIFY0 SYM FN) "
+  " (C::ASSEMBLE (CAR (CDDR FN))) "
+  " (PUTPROP SYM (LIST (LOAD-WASM) (LENGTH (CADR FN))) 'SUBR) "
+  " (REMPROP SYM 'EXPR) "  ;; TODO: Support FEXPR
+  " ))"
+  "(DE COMPILE (LST) "
+  " (MAP LST (FUNCTION (LAMBDA (X) (C::COMPILE1 (CAR X))))))"
   ;; Greeting
   "(PRINT '$$|\F0\9F\8D\93 Ichigo Lisp version 0.0.1 powered by WebAssembly|) "
   "(PRINT '$$|\F0\9F\8D\93 Enjoy LISP 1.5(-ish) programming|) "
