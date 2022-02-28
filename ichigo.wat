@@ -1941,6 +1941,31 @@
        (local.set $args (call $cdr (local.get $e)))
        (local.set $fn_lookup (i32.const 0))
        (loop $complp
+          ;; Check if fn is FEXPR
+          (local.set $tmp
+                     (call $get (local.get $fn) (global.get $sym_fexpr)))
+          (if (i32.ne (local.get $tmp) (i32.const 0))
+              (then
+               (local.set $args (call $list2 (local.get $args) (local.get $a)))
+               ;; HACK: replace `a` in stack with (args a) for GC.
+               ;; It's a bit scary but safe because FSUBR (which uses `a` in
+               ;; stack) isn't directly called in this case.
+               (i32.store (i32.sub (global.get $sp) (i32.const 4))
+                          (local.get $args))  ;; replace `a` in stack
+               ;; Disable argument evaluation.
+               (local.set $applying (i32.const 1))
+               ;; The new fn should be (LAMBDA ...).
+               (local.set $fn (local.get $tmp))))
+          ;; Check if fn is EXPR
+          (local.set $tmp
+                     (call $get (local.get $fn) (global.get $sym_expr)))
+          (if (i32.ne (local.get $tmp) (i32.const 0))
+              (then
+               (if (call $get (local.get $fn) (global.get $sym_trace))
+                    (local.set $tracing (local.get $fn)))
+               (if (call $get (local.get $fn) (global.get $sym_traceset))
+                    (global.set $traceset_env (global.get $sym_tstar)))
+               (local.set $fn (local.get $tmp))))
           ;; Check if fn is FSUBR
           (local.set $tmp
                      (call $get (local.get $fn) (global.get $sym_fsubr)))
@@ -2018,31 +2043,6 @@
                      (call $fixnum2int (call $car (local.get $tmp))))))
                (call $evpop)
                (br $evalbk)))
-          ;; Check if fn is FEXPR
-          (local.set $tmp
-                     (call $get (local.get $fn) (global.get $sym_fexpr)))
-          (if (i32.ne (local.get $tmp) (i32.const 0))
-              (then
-               (local.set $args (call $list2 (local.get $args) (local.get $a)))
-               ;; HACK: replace `a` in stack with (args a) for GC.
-               ;; It's a bit scary but safe because FSUBR (which uses `a` in
-               ;; stack) isn't directly called in this case.
-               (i32.store (i32.sub (global.get $sp) (i32.const 4))
-                          (local.get $args))  ;; replace `a` in stack
-               ;; Disable argument evaluation.
-               (local.set $applying (i32.const 1))
-               ;; The new fn should be (LAMBDA ...).
-               (local.set $fn (local.get $tmp))))
-          ;; Check if fn is EXPR
-          (local.set $tmp
-                     (call $get (local.get $fn) (global.get $sym_expr)))
-          (if (i32.ne (local.get $tmp) (i32.const 0))
-              (then
-               (if (call $get (local.get $fn) (global.get $sym_trace))
-                    (local.set $tracing (local.get $fn)))
-               (if (call $get (local.get $fn) (global.get $sym_traceset))
-                    (global.set $traceset_env (global.get $sym_tstar)))
-               (local.set $fn (local.get $tmp))))
           ;; Don't lookup fn from alist twice (to avoid infinite loop)
           (if (i32.and (call $symbolp (local.get $fn))
                        (i32.ne (local.get $fn_lookup) (i32.const 0)))
