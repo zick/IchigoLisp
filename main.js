@@ -65,7 +65,7 @@ function endEval(sender, out) {
         checkTest(test_idx, out);
         writeToTerminal('\n');
         writeToTerminal('> ');
-        if (test_idx < test_data.length - 1) {
+        if (test_idx < test_data[test_set_idx].length - 1) {
             doTest(test_idx + 1);
         } else {
             endTest();
@@ -89,8 +89,9 @@ function setDebugLevel() {
 
 var num_pass = 0;
 var num_fail = 0;
+var test_set_idx = 0;
 function doTest(i) {
-    var str = test_data[i][0];
+    var str = test_data[test_set_idx][i][0];
     writeToTerminal(str + '\n');
 
     var sender = ['test', i];
@@ -98,25 +99,26 @@ function doTest(i) {
 }
 function checkTest(i, out) {
     var pass = false;
-    if (test_data[i][1] instanceof RegExp) {
-        pass = test_data[i][1].test(out);
+    if (test_data[test_set_idx][i][1] instanceof RegExp) {
+        pass = test_data[test_set_idx][i][1].test(out);
     } else {
-        pass = (test_data[i][1] == out);
+        pass = (test_data[test_set_idx][i][1] == out);
     }
 
     if (pass) {
         writeToTerminal('  ;; OK');
         num_pass++;
     } else {
-        writeToTerminal('  ;; Failed' + '\n' +
-                        ';; Expected: ' + test_data[i][1] + '\n' +
-                        ';; Actual: ' + out);
+        writeToTerminal(
+            '  ;; Failed' + '\n' +
+                ';; Expected: ' + test_data[test_set_idx][i][1] + '\n' +
+                ';; Actual: ' + out);
         num_fail++;
     }
 
     setMessage('pass: ' + num_pass + '  fail: ' + num_fail + ' (running)');
 }
-function startTest() {
+function startTest(idx) {
     if (ichigo_lock) {
         console.log('startTest was called during ichigo_lock is true');
         return;
@@ -124,6 +126,7 @@ function startTest() {
         ichigo_lock = true;
     }
 
+    test_set_idx = idx;
     num_pass = 0;
     num_fail = 0;
     doTest(0);

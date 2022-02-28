@@ -1,4 +1,5 @@
-var test_data = [
+var test_data = [];
+test_data.push([
     ["1", "1"],
     ["#x10", "16"],
     ["#x1f", "31"],
@@ -321,4 +322,39 @@ var test_data = [
     ["(max 1 'a 3)", /I3/],
     ["(conc (list 1) ub (list 3))", /A8/],
     ["(maplist '(1 2 3) '(lambda(x) ub))", /A8/],
-];
+]);
+test_data.push([
+    ["(de nilfn () nil)", "NILFN"],
+    ["(nilfn)", "NIL"],
+    ["(compile '(nilfn))", "NIL"],
+    ["(nilfn)", "NIL"],
+    ["(de numfn () 42)", "NUMFN"],
+    ["(numfn)", "42"],
+    ["(compile '(numfn))", "NIL"],
+    ["(numfn)", "42"],
+    ["(de argfn (x) x)", "ARGFN"],
+    ["(argfn 15)", "15"],
+    ["(compile '(argfn))", "NIL"],
+    ["(argfn 15)", "15"],
+    ["(de argfn2 (x y) y)", "ARGFN2"],
+    ["(argfn2 15 16)", "16"],
+    ["(compile '(argfn2))", "NIL"],
+    ["(argfn2 15 16)", "16"],
+    ["(de subrfn (x) (1+ x))", "SUBRFN"],
+    ["(subrfn 1)", "2"],
+    ["(compile '(subrfn))", "NIL"],
+    ["(subrfn 1)", "2"],
+    ["(de subrfn2 (x y) (cons x (cons y nil)))", "SUBRFN2"],
+    ["(subrfn2 1 2)", "(1 2)"],
+    ["(compile '(subrfn2))", "NIL"],
+    ["(subrfn2 1 2)", "(1 2)"],
+    ["(de tasu1 (x) (1+ x))", "TASU1"],
+    ["(de exprfn (x) (tasu1 x))", "EXPRFN"],
+    ["(exprfn 1)", "2"],
+    ["(compile '(exprfn))", "NIL"],
+    ["(exprfn 1)", "2"],
+    ["(compile '(tasu1))", "NIL"],
+    ["(exprfn 1)", "2"],
+    ["(de tasu1 (x) (cons x x))", "TASU1"],
+    ["(exprfn 1)", "(1 . 1)"],
+]);
