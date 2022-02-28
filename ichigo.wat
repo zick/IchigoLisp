@@ -631,6 +631,8 @@
  (elem (i32.const 13) $getArgF3)  ;; i2i
  (elem (i32.const 14) $getArgF4)  ;; i2i
 
+ (elem (i32.const 20) $subrCall)  ;; i2i
+
  (func $getsp (result i32)
        (global.get $sp))
  (func $push (param $val i32)
@@ -1800,6 +1802,37 @@
 
  (func $evpop
        (global.set $sp (i32.sub (global.get $sp) (i32.const 16))))
+
+ ;; For compiler
+ (func $adjustSubrCallStack (param $narg i32)
+       (local $arg4 i32)
+       (if (i32.lt_u (local.get $narg) (i32.const 4))
+           (loop $pushlp
+              (if (i32.eq (local.get $narg) (i32.const 4))
+                  (return))
+              (call $push (i32.const 0))
+              (local.set $narg (i32.add (local.get $narg) (i32.const 1)))
+              (br $pushlp)))
+       (local.set $arg4 (i32.const 0))
+       (call $push (local.get $arg4))
+       (loop $poplp
+          (if (i32.eq (local.get $narg) (i32.const 3))
+              (return))
+          (local.set $arg4 (call $pop))
+          (local.set $arg4 (call $cons (local.get $arg4) (call $pop)))
+          (call $push (local.get $arg4))
+          (local.set $narg (i32.sub (local.get $narg) (i32.const 1)))
+          (br $poplp)))
+ (func $subrCall (param $idx i32) (param $narg i32) (result i32)
+       (local $ret i32)
+       (call $adjustSubrCallStack (local.get $narg))
+       (local.set
+        $ret
+        (call_indirect
+         (type $subr_type)
+         (local.get $idx)))  ;; This is not a fixnum.
+       (call $evpop)
+       (local.get $ret))
 
  ;; All arguments must be protected from GC
  (func $pairlis (param $x i32) (param $y i32) (param $z i32) (result i32)
@@ -4572,8 +4605,8 @@
   ")) "
   "(DE C::TYPE-SECTION () (PROG () "
   " (BWRITE 0x01) "  ;; section number
-  " (BWRITE 0x0e) "  ;; section size
-  " (BWRITE 0x03) "  ;; 3 entry
+  " (BWRITE 0x14) "  ;; section size
+  " (BWRITE 0x04) "  ;; 4 entry
   " (BWRITE 0x60) "  ;; functype (void -> i32)
   " (BWRITE 0x00) "  ;; no arguments
   " (BWRITE 0x01) "  ;; 1 value
@@ -4584,6 +4617,12 @@
   " (BWRITE 0x00) "  ;; 0 value
   " (BWRITE 0x60) "  ;; functype (i32 -> i32)
   " (BWRITE 0x01) "  ;; 1 parameter
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x01) "  ;; 1 value
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x60) "  ;; functype (i32*i32 -> i32)
+  " (BWRITE 0x02) "  ;; 2 parameters
+  " (BWRITE 0x7f) "  ;; i32
   " (BWRITE 0x7f) "  ;; i32
   " (BWRITE 0x01) "  ;; 1 value
   " (BWRITE 0x7f) "  ;; i32
@@ -4654,8 +4693,10 @@
   " (COND "
   "  ((ATOM X) (C::ASSEMBLE-ATOM X)) "
   "  ((EQ (CAR X) 'CONST) (C::ASSEMBLE-CONST (CADR X))) "
+  "  ((EQ (CAR X) 'GET-LOCAL) (C::ASSEMBLE-GET-LOCAL (CADR X))) "
   "  ((EQ (CAR X) 'CALL) (C::ASSEMBLE-CALL (CDR X))) "
   "  ((EQ (CAR X) 'LOAD) (C::ASSEMBLE-LOAD (CDR X))) "
+  "  ((EQ (CAR X) 'PROGN) (C::ASSEMBLE-PROGN (CDR X))) "
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not asm opcode|))))) "
   "(DE C::ASSEMBLE-ATOM (X) "
   " (COND "
@@ -4669,25 +4710,34 @@
   "  ((FIXP X) (CONS 0x41 (LEB128 (C::ENCODE-FIXNUM X)))) "
   "  ((OR (SYMBOLP X) (CONSP X)) (CONS 0x41 (LEB128 (FENCODE X)))) "
   "  (T (ERROR (SYMCAT X '$$| is not supported const|))))) "
+  "(DE C::ASSEMBLE-GET-LOCAL (X) "  ;; X of (GET-LOCAL X)
+  " (CONS 0x20 (LEB128 X))) "
   "(DE C::ASSEMBLE-TYPE (X) "
   " (COND "
   "  ((EQ X 'V2I) 0) "
   "  ((EQ X 'I2V) 1) "
   "  ((EQ X 'I2I) 2) "
+  "  ((EQ X 'II2I) 3) "
   "  (T (ERROR (SYMCAT X '$$| is not supported type|))))) "
   "(DE C::ASSEMBLE-CALL (X) "  ;; X of (CALL . X=(TYPE . ARGS))
-  ;; Push arguments, then call the function.
   " (NCONC "
+  ;; Push arguments
   "  (MAPCON (CDR X) (FUNCTION (LAMBDA (Y) "
   "   (C::ASSEMBLE-CODE (CAR Y))))) "
+  ;; Call the function.
   "  (LIST 0x11 (C::ASSEMBLE-TYPE (CAR X)) 0x00))) "  ;; call_indirect
   "(DE C::ASSEMBLE-LOAD (X) "  ;; X of (LOAD . X=(CELL))
   " (NCONC "
+  ;; Push the address
   "  (MAPCON X (FUNCTION (LAMBDA (Y) "
   "   (C::ASSEMBLE-CODE (CAR Y))))) "
+  ;; Load
   "  (LIST 0x28 0x02 0x00))) "  ;; align=2 (I'm not sure if it's necessary)
+  "(DE C::ASSEMBLE-PROGN (X) "  ;; X of (PROGN . X)
+  " (MAPCON X (FUNCTION (LAMBDA (Y) "
+  "   (C::ASSEMBLE-CODE (CAR Y)))))) "
   "(DE C::COMPILE-ARG (N) "
-  " (LIST 'CALL 'I2I (LIST 'CALL 'V2I 0) (+ 11 N))) " ;; 0: getsp, 11: getArgF1
+  " (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) (+ 11 N))) " ;; 11: getArgF1
   "(DE C::COMPILE-APVAL (CELL) "
   " (LIST 'CALL 'I2I "
   "  (LIST 'LOAD (LIST 'CONST CELL)) "
@@ -4699,18 +4749,32 @@
   "  ((GET X 'APVAL) (C::COMPILE-APVAL (PROP X 'APVAL))) "
   "  ((POSITION X ARGS) (C::COMPILE-ARG (POSITION X ARGS))) "
   "  (T (ERROR (SYMCAT X '$$| is not supported atom|))))) "
+  "(DE C::COMPILE-SUBR-CALL (SYM ARGS SB AA) "
+  " (CONC "
+  "  (LIST 'PROGN) "
+  "  (MAPLIST AA "
+  "   (FUNCTION (LAMBDA (Y) "
+  "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
+  "  (LIST (LIST 'CALL 'II2I (CAR SB) (LENGTH AA) 20)))) "  ;; 20: subrCall
+  "(DE C::COMPILE-SYM-CALL (SYM ARGS X) "
+  " (COND "
+  "  ((GET (CAR X) 'SUBR) "
+  "   (C::COMPILE-SUBR-CALL SYM ARGS (GET (CAR X) 'SUBR) (CDR X))) "
+  "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported function|))))) "
+  "(DE C::COMPILE-COMP (SYM ARGS X) "
+  " (COND "
+  "  ((ATOM (CAR X)) (C::COMPILE-SYM-CALL SYM ARGS X)) "
+  "  (T (ERROR '$$|non-atom functions are not supported|)))) "
   "(DE C::COMPILE-CODE (SYM ARGS X) "
   " (COND "
   "  ((ATOM X) (C::COMPILE-ATOM X ARGS)) "
-  "  (T (ERROR '$$|Unsupported Lisp code|)))) "
+  "  (T (C::COMPILE-COMP SYM ARGS X)))) "
   "(DE C::VERIFY0 (SYM FN) (PROG () "
   " (IF (ATOM FN) (ERROR (SYMCAT SYM '$$| is not a function|))) "
   " (IF (NOT (EQ (CAR FN) 'LAMBDA)) "
   "  (ERROR (SYMCAT SYM '$$| is not a lambda|))) "
   " (IF (> (LENGTH (CADR FN)) 4) "  ;; TODO: Remove this restriction
   "  (ERROR '$$|more than 4 arguments are not supported|)) "
-  " (IF (NOT (ATOM (CAR (CDDR FN)))) "  ;; TODO: Remove this restriction
-  "  (ERROR '$$|compound expression is not supported|)) "
   " )) "
   "(DE C::COMPILE1 (SYM) (PROG (FN) "
   " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
