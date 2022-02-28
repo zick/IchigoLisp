@@ -632,6 +632,7 @@
  (elem (i32.const 14) $getArgF4)  ;; i2i
 
  (elem (i32.const 20) $subrCall)  ;; i2i
+ (elem (i32.const 21) $funcCall)  ;; i2i
 
  (func $getsp (result i32)
        (global.get $sp))
@@ -1825,6 +1826,7 @@
           (br $poplp)))
  (func $subrCall (param $idx i32) (param $narg i32) (result i32)
        (local $ret i32)
+       ;; TODO: argument error check
        (call $adjustSubrCallStack (local.get $narg))
        (local.set
         $ret
@@ -1833,6 +1835,50 @@
          (local.get $idx)))  ;; This is not a fixnum.
        (call $evpop)
        (local.get $ret))
+ (func $exprCall (param $fn i32) (param $narg i32) (result i32)
+       (local $aarg i32)
+       (local.set $aarg (i32.const 0))
+       (block $block
+         (loop $loop
+            (if (i32.eqz (local.get $narg))
+                (br $block))
+            (local.set $aarg (call $cons (call $pop) (local.get $aarg)))
+            (local.set $narg (i32.sub (local.get $narg) (i32.const 1)))
+            (br $loop)))
+       ;; TODO: Support FUNARG
+       (call
+        $eval
+        (call $car (call $cddr (local.get $fn)))
+       ;; TODO: make sure $fn is protected from GC
+        (call
+         $pairlis
+         (call $cadr (local.get $fn))
+         (local.get $aarg)
+         (i32.const 0))))  ;; TODO: Consider how to handle alist
+ (func $funcCall (param $sym i32) (param $narg i32) (result i32)
+       (local $tmp i32)
+       ;; TODO: argument error check
+       ;; Check if it's EXPR
+       (local.set $tmp (call $get (local.get $sym) (global.get $sym_expr)))
+       (if (i32.ne (local.get $tmp) (i32.const 0))
+           (return (call $exprCall (local.get $tmp) (local.get $narg))))
+       ;; Check if it's SUBR
+       (local.set $tmp (call $get (local.get $sym) (global.get $sym_subr)))
+       (if (i32.ne (local.get $tmp) (i32.const 0))
+           (return (call $subrCall
+                         (call $fixnum2int (call $car (local.get $tmp)))
+                         (local.get $narg))))
+       ;; Error: $sym is not a function
+       ;; Remove arguments from stack
+       (loop $loop
+          (if (i32.eqz (local.get $narg))
+              (return (call $perr1
+                            (call $makeStrError (global.get $str_err_nodef))
+                            (local.get $sym))))
+          (call $drop (call $pop))
+          (local.set $narg (i32.sub (local.get $narg) (i32.const 1)))
+          (br $loop))
+       (i32.const 0))
 
  ;; All arguments must be protected from GC
  (func $pairlis (param $x i32) (param $y i32) (param $z i32) (result i32)
@@ -4750,17 +4796,27 @@
   "  ((POSITION X ARGS) (C::COMPILE-ARG (POSITION X ARGS))) "
   "  (T (ERROR (SYMCAT X '$$| is not supported atom|))))) "
   "(DE C::COMPILE-SUBR-CALL (SYM ARGS SB AA) "
+  ;; TODO: Support getAArgInSubr
   " (CONC "
   "  (LIST 'PROGN) "
   "  (MAPLIST AA "
   "   (FUNCTION (LAMBDA (Y) "
   "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
   "  (LIST (LIST 'CALL 'II2I (CAR SB) (LENGTH AA) 20)))) "  ;; 20: subrCall
-  "(DE C::COMPILE-SYM-CALL (SYM ARGS X) "
-  " (COND "
-  "  ((GET (CAR X) 'SUBR) "
-  "   (C::COMPILE-SUBR-CALL SYM ARGS (GET (CAR X) 'SUBR) (CDR X))) "
-  "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported function|))))) "
+  "(DE C::COMPILE-FUNC-CALL (SYM ARGS FN AA) "
+  ;; TODO: Support getAArgInSubr
+  " (CONC "
+  "  (LIST 'PROGN) "
+  "  (MAPLIST AA "
+  "   (FUNCTION (LAMBDA (Y) "
+  "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
+  "  (LIST (LIST 'CALL 'II2I (LIST 'CONST FN) (LENGTH AA) 21)))) "  ;; funcCall
+  "(DE C::COMPILE-SYM-CALL (SYM ARGS X) (PROG (SB) "
+  " (SETQ SB (GET (CAR X) 'SUBR)) "
+  " (RETURN (COND "
+  "  ((AND SB (< (CAR SB) 300)) "  ;; <300 means primitive SUBRs
+  "   (C::COMPILE-SUBR-CALL SYM ARGS SB (CDR X))) "
+  "  (T (C::COMPILE-FUNC-CALL SYM ARGS (CAR X) (CDR X))))))) "
   "(DE C::COMPILE-COMP (SYM ARGS X) "
   " (COND "
   "  ((ATOM (CAR X)) (C::COMPILE-SYM-CALL SYM ARGS X)) "
