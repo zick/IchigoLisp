@@ -385,4 +385,11 @@ test_data.push([
     ["(errorfn3)", /A2/],
     ["(compile '(errorfn3))", "NIL"],
     ["(errorfn3)", /A2/],
+
+    ["(de fsubrfn (x) (+ x (if (zerop x) 256 (* x x))))", "FSUBRFN"],
+    ["(fsubrfn 0)", "256"],
+    ["(fsubrfn 3)", "12"],
+    ["(compile '(fsubrfn))", "NIL"],
+    ["(fsubrfn 0)", "256"],
+    ["(fsubrfn 3)", "12"],
 ]);

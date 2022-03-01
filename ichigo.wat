@@ -631,8 +631,10 @@
  (elem (i32.const 13) $getArgF3)  ;; i2i
  (elem (i32.const 14) $getArgF4)  ;; i2i
 
- (elem (i32.const 20) $subrCall)  ;; i2i
- (elem (i32.const 21) $funcCall)  ;; i2i
+ (elem (i32.const 20) $subrCall)  ;; ii2i
+ (elem (i32.const 21) $funcCall)  ;; ii2i
+ (elem (i32.const 22) $createAlistFromStack)  ;; ii2i
+ (elem (i32.const 23) $fsubrCall)  ;; i2i
 
  (func $getsp (result i32)
        (global.get $sp))
@@ -1825,6 +1827,25 @@
           (call $push (local.get $arg4))
           (local.set $narg (i32.sub (local.get $narg) (i32.const 1)))
           (br $poplp)))
+ (func $createAlistFromStack (param $fmp i32) (param $farg i32) (result i32)
+       (local $aarg i32)
+       (local $ret i32)
+       (local.set $aarg (call $getArgFRest (local.get $fmp)))
+       (local.set $aarg (call $cons (call $getArgF3 (local.get $fmp))
+                              (local.get $aarg)))
+       (local.set $aarg (call $cons (call $getArgF2 (local.get $fmp))
+                              (local.get $aarg)))
+       (local.set $aarg (call $cons (call $getArgF1 (local.get $fmp))
+                              (local.get $aarg)))
+       (call $push (local.get $aarg))  ;; For GC (aarg)
+       (call $push (local.get $farg))  ;; For GC (aarg farg)
+       (local.set
+        $ret
+        (call $pairlis (local.get $farg) (local.get $aarg)
+              (call $getAArgFInSubr (local.get $fmp))))
+       (call $drop (call $pop))  ;; For GC (aarg)
+       (call $drop (call $pop))  ;; For GC ()
+       (local.get $ret))
  ;;; Returns NIL if all arguments are not errors.
  ;;; If errors are found, removes all arguments and alist from stack, and
  ;;; returns the found error.
@@ -1881,7 +1902,7 @@
        (call
         $eval
         (call $car (call $cddr (local.get $fn)))
-       ;; TODO: make sure $fn is protected from GC
+        ;; TODO: make sure $fn is protected from GC
         (call
          $pairlis
          (call $cadr (local.get $fn))
@@ -1908,6 +1929,20 @@
        (call $perr1
              (call $makeStrError (global.get $str_err_nodef))
              (local.get $sym)))
+ ;;; FSUBR Stack: (..., e, a)
+ (func $fsubrCall (param $idx i32) (result i32)
+       (local $ret i32)
+       (local.set
+        $ret
+        (call_indirect
+         (type $fsubr_type)
+         (local.get $idx)))  ;; This is not a fixnum.
+       ;; Check whether the return value should be evaluated
+       (if (i32.ne (call $pop) (i32.const 0))
+           (local.set $ret (call $eval (call $getEArg) (call $getAArg))))
+       (call $drop (call $pop))  ;; For GC (e)
+       (call $drop (call $pop))  ;; For GC ()
+       (local.get $ret))
 
  ;; All arguments must be protected from GC
  (func $pairlis (param $x i32) (param $y i32) (param $z i32) (result i32)
@@ -4821,9 +4856,9 @@
   "(DE C::COMPILE-SUBR-CALL (SYM ARGS SB AA) "
   " (CONC "
   "  (LIST 'PROGN) "
-  ;; ;; Push alist
+  ;; ;; Push alist (10: getAArgFInSubr)
   "  (LIST (LIST 'CALL 'I2V (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) 1)) "
-  ;; ;; Push arguments (10: getAArgFInSubr)
+  ;; ;; Push arguments
   "  (MAPLIST AA "
   "   (FUNCTION (LAMBDA (Y) "
   "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
@@ -4838,9 +4873,22 @@
   "   (FUNCTION (LAMBDA (Y) "
   "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
   "  (LIST (LIST 'CALL 'II2I (LIST 'CONST FN) (LENGTH AA) 21)))) "  ;; funcCall
-  "(DE C::COMPILE-SYM-CALL (SYM ARGS X) (PROG (SB) "
+  "(DE C::COMPILE-FSUBR-CALL (SYM ARGS FS E) "
+  " (CONC "
+  "  (LIST 'PROGN) "
+  ;; ;; Push expression
+  "  (LIST (LIST 'CALL 'I2V (LIST 'CONST E) 1)) "
+  ;; ;; Push alist
+  "  (LIST (LIST 'CALL 'I2V "
+  "   (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) 1)) "
+  ;; ;; Push arguments
+  "  (LIST (LIST 'CALL 'I2I FS 23)))) "  ;; 23: fsubrCall
+  "(DE C::COMPILE-SYM-CALL (SYM ARGS X) (PROG (SB FS) "
   " (SETQ SB (GET (CAR X) 'SUBR)) "
+  " (SETQ FS (GET (CAR X) 'FSUBR)) "
   " (RETURN (COND "
+  "  (FS "
+  "   (C::COMPILE-FSUBR-CALL SYM ARGS FS X)) "
   "  ((AND SB (< (CAR SB) 300)) "  ;; <300 means primitive SUBRs
   "   (C::COMPILE-SUBR-CALL SYM ARGS SB (CDR X))) "
   "  (T (C::COMPILE-FUNC-CALL SYM ARGS (CAR X) (CDR X))))))) "
@@ -4859,12 +4907,15 @@
   " (IF (> (LENGTH (CADR FN)) 4) "  ;; TODO: Remove this restriction
   "  (ERROR '$$|more than 4 arguments are not supported|)) "
   " )) "
-  "(DE C::COMPILE1 (SYM) (PROG (FN) "
+  "(DE C::COMPILE1 (SYM) (PROG (FN OBJS) "
   " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
   " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR|))) "
   " (C::VERIFY0 SYM FN) "
   " (C::ASSEMBLE (C::COMPILE-CODE SYM (CADR FN) (CAR (CDDR FN)))) "
-  " (PUTPROP SYM (LIST (LOAD-WASM) (LENGTH (CADR FN))) 'SUBR) "
+  ;; ;; HACK: Keep the whole function to protect from GC.
+  ;; ;; HACK: OBJS should be a list of objects used by compiled function.
+  " (SETQ OBJS FN) "
+  " (PUTPROP SYM (LIST (LOAD-WASM) (LENGTH (CADR FN)) OBJS) 'SUBR) "
   " (REMPROP SYM 'EXPR) "  ;; TODO: Support FEXPR
   " ))"
   "(DE COMPILE (LST) "
