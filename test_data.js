@@ -370,4 +370,19 @@ test_data.push([
     ["(produce-a 15)", "(15 . 15)"],
     ["(compile '(alistfn))", "NIL"],
     ["(produce-a 15)", "(15 . 15)"],
+
+    ["(de errorfn () (cons nil (1+ nil)))", "ERRORFN"],
+    ["(errorfn)", /I3/],
+    ["(compile '(errorfn))", "NIL"],
+    ["(errorfn)", /I3/],
+
+    ["(de errorfn2 () (trace (1+ nil)))", "ERRORFN2"],
+    ["(errorfn2)", /I3/],
+    ["(compile '(errorfn2))", "NIL"],
+    ["(errorfn2)", /I3/],
+
+    ["(de errorfn3 () (no-def 1 5))", "ERRORFN3"],
+    ["(errorfn3)", /A2/],
+    ["(compile '(errorfn3))", "NIL"],
+    ["(errorfn3)", /A2/],
 ]);

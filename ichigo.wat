@@ -1825,9 +1825,34 @@
           (call $push (local.get $arg4))
           (local.set $narg (i32.sub (local.get $narg) (i32.const 1)))
           (br $poplp)))
+ ;;; Returns NIL if all arguments are not errors.
+ ;;; If errors are found, removes all arguments and alist from stack, and
+ ;;; returns the found error.
+ (func $checkFuncCallStack (param $narg i32) (result i32)
+       (local $ret i32)
+       (local $nelm i32)
+       (local.set $nelm (i32.add (local.get $narg) (i32.const 1)))
+       (loop $loop
+          (if (i32.eqz (local.get $narg))
+              (return (i32.const 0)))
+          (local.set
+           $ret
+           (i32.load (i32.sub (global.get $sp)
+                              (i32.mul (local.get $narg) (i32.const 4)))))
+          (if (i32.ne (call $errorp (local.get $ret)) (i32.const 0))
+              (then
+               (global.set
+                $sp (i32.sub (global.get $sp)
+                             (i32.mul (local.get $nelm) (i32.const 4))))
+               (return (local.get $ret))))
+          (local.set $narg (i32.sub (local.get $narg) (i32.const 1)))
+          (br $loop))
+       (i32.const 0))
  (func $subrCall (param $idx i32) (param $narg i32) (result i32)
        (local $ret i32)
-       ;; TODO: argument error check
+       (local.set $ret (call $checkFuncCallStack (local.get $narg)))
+       (if (i32.ne (local.get $ret) (i32.const 0))
+           (return (local.get $ret)))
        (call $adjustSubrCallStack (local.get $narg))
        (local.set
         $ret
@@ -1840,6 +1865,9 @@
  (func $exprCall (param $fn i32) (param $narg i32) (result i32)
        (local $aarg i32)
        (local $alist i32)
+       (local.set $aarg (call $checkFuncCallStack (local.get $narg)))
+       (if (i32.ne (local.get $aarg) (i32.const 0))
+           (return (local.get $aarg)))
        (local.set $aarg (i32.const 0))
        (block $block
          (loop $loop
@@ -1861,7 +1889,6 @@
          (local.get $alist))))
  (func $funcCall (param $sym i32) (param $narg i32) (result i32)
        (local $tmp i32)
-       ;; TODO: argument error check
        ;; Check if it's EXPR
        (local.set $tmp (call $get (local.get $sym) (global.get $sym_expr)))
        (if (i32.ne (local.get $tmp) (i32.const 0))
@@ -1874,17 +1901,13 @@
                          (local.get $narg))))
        ;; Error: $sym is not a function
        ;; Remove arguments and alist from stack
-       (loop $loop
-          (if (i32.eqz (local.get $narg))
-              (then
-               (call $drop (call $pop))  ;; Pop alist
-               (return (call $perr1
-                             (call $makeStrError (global.get $str_err_nodef))
-                             (local.get $sym)))))
-          (call $drop (call $pop))
-          (local.set $narg (i32.sub (local.get $narg) (i32.const 1)))
-          (br $loop))
-       (i32.const 0))
+       (global.set
+        $sp (i32.sub (global.get $sp)
+                     (i32.mul (i32.add (local.get $narg) (i32.const 1))
+                              (i32.const 4))))
+       (call $perr1
+             (call $makeStrError (global.get $str_err_nodef))
+             (local.get $sym)))
 
  ;; All arguments must be protected from GC
  (func $pairlis (param $x i32) (param $y i32) (param $z i32) (result i32)
