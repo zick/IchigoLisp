@@ -328,26 +328,32 @@ test_data.push([
     ["(nilfn)", "NIL"],
     ["(compile '(nilfn))", "NIL"],
     ["(nilfn)", "NIL"],
+
     ["(de numfn () 42)", "NUMFN"],
     ["(numfn)", "42"],
     ["(compile '(numfn))", "NIL"],
     ["(numfn)", "42"],
+
     ["(de argfn (x) x)", "ARGFN"],
     ["(argfn 15)", "15"],
     ["(compile '(argfn))", "NIL"],
     ["(argfn 15)", "15"],
+
     ["(de argfn2 (x y) y)", "ARGFN2"],
     ["(argfn2 15 16)", "16"],
     ["(compile '(argfn2))", "NIL"],
     ["(argfn2 15 16)", "16"],
+
     ["(de subrfn (x) (1+ x))", "SUBRFN"],
     ["(subrfn 1)", "2"],
     ["(compile '(subrfn))", "NIL"],
     ["(subrfn 1)", "2"],
+
     ["(de subrfn2 (x y) (cons x (cons y nil)))", "SUBRFN2"],
     ["(subrfn2 1 2)", "(1 2)"],
     ["(compile '(subrfn2))", "NIL"],
     ["(subrfn2 1 2)", "(1 2)"],
+
     ["(de tasu1 (x) (1+ x))", "TASU1"],
     ["(de exprfn (x) (tasu1 x))", "EXPRFN"],
     ["(exprfn 1)", "2"],
@@ -357,4 +363,11 @@ test_data.push([
     ["(exprfn 1)", "2"],
     ["(de tasu1 (x) (cons x x))", "TASU1"],
     ["(exprfn 1)", "(1 . 1)"],
+
+    ["(de produce-a (a) (alistfn))", "PRODUCE-A"],
+    ["(de consume-a () (cons a a))", "CONSUME-A"],
+    ["(de alistfn () (consume-a))", "ALISTFN"],
+    ["(produce-a 15)", "(15 . 15)"],
+    ["(compile '(alistfn))", "NIL"],
+    ["(produce-a 15)", "(15 . 15)"],
 ]);

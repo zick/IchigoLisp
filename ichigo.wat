@@ -1804,7 +1804,8 @@
  (func $evpop
        (global.set $sp (i32.sub (global.get $sp) (i32.const 16))))
 
- ;; For compiler
+ ;;; For compiler
+ ;;; Compiler stack: (..., a, arg1, arg2, arg3, ..., argN)  [N=narg]
  (func $adjustSubrCallStack (param $narg i32)
        (local $arg4 i32)
        (if (i32.lt_u (local.get $narg) (i32.const 4))
@@ -1834,9 +1835,11 @@
          (type $subr_type)
          (local.get $idx)))  ;; This is not a fixnum.
        (call $evpop)
+       (call $drop (call $pop))  ;; Pop alist
        (local.get $ret))
  (func $exprCall (param $fn i32) (param $narg i32) (result i32)
        (local $aarg i32)
+       (local $alist i32)
        (local.set $aarg (i32.const 0))
        (block $block
          (loop $loop
@@ -1845,6 +1848,7 @@
             (local.set $aarg (call $cons (call $pop) (local.get $aarg)))
             (local.set $narg (i32.sub (local.get $narg) (i32.const 1)))
             (br $loop)))
+       (local.set $alist (call $pop))
        ;; TODO: Support FUNARG
        (call
         $eval
@@ -1854,7 +1858,7 @@
          $pairlis
          (call $cadr (local.get $fn))
          (local.get $aarg)
-         (i32.const 0))))  ;; TODO: Consider how to handle alist
+         (local.get $alist))))
  (func $funcCall (param $sym i32) (param $narg i32) (result i32)
        (local $tmp i32)
        ;; TODO: argument error check
@@ -1869,12 +1873,14 @@
                          (call $fixnum2int (call $car (local.get $tmp)))
                          (local.get $narg))))
        ;; Error: $sym is not a function
-       ;; Remove arguments from stack
+       ;; Remove arguments and alist from stack
        (loop $loop
           (if (i32.eqz (local.get $narg))
-              (return (call $perr1
-                            (call $makeStrError (global.get $str_err_nodef))
-                            (local.get $sym))))
+              (then
+               (call $drop (call $pop))  ;; Pop alist
+               (return (call $perr1
+                             (call $makeStrError (global.get $str_err_nodef))
+                             (local.get $sym)))))
           (call $drop (call $pop))
           (local.set $narg (i32.sub (local.get $narg) (i32.const 1)))
           (br $loop))
@@ -1883,9 +1889,6 @@
  ;; All arguments must be protected from GC
  (func $pairlis (param $x i32) (param $y i32) (param $z i32) (result i32)
        (local $tmp i32)
-       ;;;(call $push (local.get $x))  ;; For GC (x)
-       ;;;(call $push (local.get $y))  ;; For GC (x y)
-       ;;;(call $push (local.get $z))  ;; For GC (x y z)
        (block $block
          (loop $loop
             (br_if $block (i32.eqz (call $consp (local.get $x))))
@@ -1898,9 +1901,6 @@
             (local.set $x (call $cdr (local.get $x)))
             (local.set $y (call $safecdr (local.get $y)))
             (br $loop)))
-       ;;;(call $drop (call $pop))  ;; For GC (x y)
-       ;;;(call $drop (call $pop))  ;; For GC (x)
-       ;;;(call $drop (call $pop))  ;; For GC ()
        (local.get $z))
 
  (func
@@ -4767,17 +4767,17 @@
   "  (T (ERROR (SYMCAT X '$$| is not supported type|))))) "
   "(DE C::ASSEMBLE-CALL (X) "  ;; X of (CALL . X=(TYPE . ARGS))
   " (NCONC "
-  ;; Push arguments
+  ;; ;; Push arguments
   "  (MAPCON (CDR X) (FUNCTION (LAMBDA (Y) "
   "   (C::ASSEMBLE-CODE (CAR Y))))) "
-  ;; Call the function.
+  ;; ;; Call the function.
   "  (LIST 0x11 (C::ASSEMBLE-TYPE (CAR X)) 0x00))) "  ;; call_indirect
   "(DE C::ASSEMBLE-LOAD (X) "  ;; X of (LOAD . X=(CELL))
   " (NCONC "
-  ;; Push the address
+  ;; ;; Push the address
   "  (MAPCON X (FUNCTION (LAMBDA (Y) "
   "   (C::ASSEMBLE-CODE (CAR Y))))) "
-  ;; Load
+  ;; ;; Load
   "  (LIST 0x28 0x02 0x00))) "  ;; align=2 (I'm not sure if it's necessary)
   "(DE C::ASSEMBLE-PROGN (X) "  ;; X of (PROGN . X)
   " (MAPCON X (FUNCTION (LAMBDA (Y) "
@@ -4796,17 +4796,21 @@
   "  ((POSITION X ARGS) (C::COMPILE-ARG (POSITION X ARGS))) "
   "  (T (ERROR (SYMCAT X '$$| is not supported atom|))))) "
   "(DE C::COMPILE-SUBR-CALL (SYM ARGS SB AA) "
-  ;; TODO: Support getAArgInSubr
   " (CONC "
   "  (LIST 'PROGN) "
+  ;; ;; Push alist
+  "  (LIST (LIST 'CALL 'I2V (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) 1)) "
+  ;; ;; Push arguments (10: getAArgFInSubr)
   "  (MAPLIST AA "
   "   (FUNCTION (LAMBDA (Y) "
   "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
   "  (LIST (LIST 'CALL 'II2I (CAR SB) (LENGTH AA) 20)))) "  ;; 20: subrCall
   "(DE C::COMPILE-FUNC-CALL (SYM ARGS FN AA) "
-  ;; TODO: Support getAArgInSubr
   " (CONC "
   "  (LIST 'PROGN) "
+  ;; ;; Push alist (10: getAArgFInSubr)
+  "  (LIST (LIST 'CALL 'I2V (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) 1)) "
+  ;; ;; Push arguments
   "  (MAPLIST AA "
   "   (FUNCTION (LAMBDA (Y) "
   "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
