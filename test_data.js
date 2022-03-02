@@ -392,4 +392,11 @@ test_data.push([
     ["(compile '(fsubrfn))", "NIL"],
     ["(fsubrfn 0)", "256"],
     ["(fsubrfn 3)", "12"],
+
+    ["(de iffn (x) (if x 2 3))", "IFFN"],
+    ["(iffn t)", "2"],
+    ["(iffn nil)", "3"],
+    ["(compile '(iffn))", "NIL"],
+    ["(iffn t)", "2"],
+    ["(iffn nil)", "3"],
 ]);

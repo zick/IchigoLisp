@@ -4684,6 +4684,8 @@
   " (SYMCAT (LAMBDA (X Y) (PROG2 (MAP (NCONC (UNPACK X) (UNPACK Y)) "
   "  (FUNCTION (LAMBDA (X) (PACK (CAR X))))) "
   "  (INTERN (MKNAM))))) "
+  " (SCAR (LAMBDA (X) (IF (NULL X) X (CAR X)))) "
+  " (SCDR (LAMBDA (X) (IF (NULL X) X (CDR X)))) "
   ")) "
   ;; Compiler (WIP)
   ;; https://en.wikipedia.org/wiki/LEB128
@@ -4801,6 +4803,7 @@
   "  ((EQ (CAR X) 'CALL) (C::ASSEMBLE-CALL (CDR X))) "
   "  ((EQ (CAR X) 'LOAD) (C::ASSEMBLE-LOAD (CDR X))) "
   "  ((EQ (CAR X) 'PROGN) (C::ASSEMBLE-PROGN (CDR X))) "
+  "  ((EQ (CAR X) 'IF) (C::ASSEMBLE-IF (CDR X))) "
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not asm opcode|))))) "
   "(DE C::ASSEMBLE-ATOM (X) "
   " (COND "
@@ -4840,6 +4843,14 @@
   "(DE C::ASSEMBLE-PROGN (X) "  ;; X of (PROGN . X)
   " (MAPCON X (FUNCTION (LAMBDA (Y) "
   "   (C::ASSEMBLE-CODE (CAR Y)))))) "
+  "(DE C::ASSEMBLE-IF (X) "  ;; X of (IF . X)
+  " (CONC "
+  "  (C::ASSEMBLE-CODE (CAR X)) "
+  "  (LIST 0x04 0x7f) "
+  "  (C::ASSEMBLE-CODE (CADR X)) "
+  "  (LIST 0x05) "
+  "  (C::ASSEMBLE-CODE (CAR (CDDR X))) "
+  "  (LIST 0x0b))) "
   "(DE C::COMPILE-ARG (N) "
   " (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) (+ 11 N))) " ;; 11: getArgF1
   "(DE C::COMPILE-APVAL (CELL) "
@@ -4892,8 +4903,20 @@
   "  ((AND SB (< (CAR SB) 300)) "  ;; <300 means primitive SUBRs
   "   (C::COMPILE-SUBR-CALL SYM ARGS SB (CDR X))) "
   "  (T (C::COMPILE-FUNC-CALL SYM ARGS (CAR X) (CDR X))))))) "
+  "(DE C::COMPILE-IF-CALL (SYM ARG X) "  ;; X of (IF . X=(c th el))
+  " (LIST 'IF "
+  "  (C::COMPILE-CODE SYM ARG (SCAR X)) "
+  "  (C::COMPILE-CODE SYM ARG (SCAR (SCDR X))) "
+  "  (C::COMPILE-CODE SYM ARG (SCAR (SCDR (SCDR X)))))) "
+  "(DE C::COMPILE-SPECIAL-CALL (SYM ARG X) "
+  " (COND "
+  "  ((EQ (CAR X) 'IF) (C::COMPILE-IF-CALL SYM ARG (CDR X))) "
+  "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported|)))))"
+  "(DE C::SPECIALFNP (X) "
+  " (MEMBER X '(IF))) "
   "(DE C::COMPILE-COMP (SYM ARGS X) "
   " (COND "
+  "  ((C::SPECIALFNP (CAR X)) (C::COMPILE-SPECIAL-CALL SYM ARGS X)) "
   "  ((ATOM (CAR X)) (C::COMPILE-SYM-CALL SYM ARGS X)) "
   "  (T (ERROR '$$|non-atom functions are not supported|)))) "
   "(DE C::COMPILE-CODE (SYM ARGS X) "
