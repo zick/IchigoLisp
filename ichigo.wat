@@ -114,6 +114,7 @@
  (func $logstr (import "console" "logstr") (param i32))
  (func $outputString (import "io" "outputString") (param i32))
  (func $loadWasm (import "io" "loadWasm") (param i32) (param i32))
+ (func $getTimeInMs (import "io" "getTimeInMs") (result i64))
  ;; WebAssembly page size is 64KB.
  ;; page 0: any
  ;; page 1: free list
@@ -167,6 +168,8 @@
  (global $cons_limit (mut i32) (i32.const 0))
  (global $suppress_error (mut i32) (i32.const 0))
  (global $debug_level (mut i32) (i32.const 0))
+ (global $suppress_gc_msg (mut i32) (i32.const 0))
+ (global $gc_count (mut i32) (i32.const 0))
 
  ;;; Symbol strings [2000 - 4095]
  (data (i32.const 2000) "NIL\00")  ;; 4
@@ -433,6 +436,8 @@
  (global $str_nextsubr i32 (i32.const 3310))
  (data (i32.const 3320) "FENCODE\00")  ;; 8
  (global $str_fencode i32 (i32.const 3320))
+ (data (i32.const 3330) "TIME\00")  ;; 5
+ (global $str_time i32 (i32.const 3330))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -571,7 +576,8 @@
  (global $sym_loadwasm i32 (i32.const 0x0428))
  (global $sym_nextsubr i32 (i32.const 0x0430))
  (global $sym_fencode i32 (i32.const 0x0438))
- (global $primitive_obj_end i32 (i32.const 0x0440))
+ (global $sym_time i32 (i32.const 0x0440))
+ (global $primitive_obj_end i32 (i32.const 0x0448))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -610,6 +616,10 @@
  (global $str_err_error i32 (i32.const 5340))
  (data (i32.const 5360) "F1: CONS COUNTER\00")  ;; 17
  (global $str_err_counter i32 (i32.const 5360))
+ (data (i32.const 5380) "TIME (MS): \00")  ;; 12
+ (global $str_msg_time_ms i32 (i32.const 5380))
+ (data (i32.const 5400) "GC: \00")  ;; 5
+ (global $str_msg_gc_count i32 (i32.const 5400))
 
  (func $ilog (param $val i32)
        (if (i32.ge_s (global.get $debug_level) (i32.const 1))
@@ -2428,14 +2438,17 @@
           (br $loop)))
 
  (func $garbageCollect (result i32)
-       (call $printComment)
-       (call $printString (global.get $str_msg_gc1))  ;; gcing
-       (call $terprif)
-       (call $printComment)
-       (call $printString (global.get $str_msg_gc4))  ;; oblist
-       (call $printFixnum
-             (call $int2fixnum (call $length (global.get $oblist))))
-       (call $terprif)
+       (global.set $gc_count (i32.add (global.get $gc_count) (i32.const 1)))
+       (if (i32.eqz (global.get $suppress_gc_msg))
+           (then
+            (call $printComment)
+            (call $printString (global.get $str_msg_gc1))  ;; gcing
+            (call $terprif)
+            (call $printComment)
+            (call $printString (global.get $str_msg_gc4))  ;; oblist
+            (call $printFixnum
+                  (call $int2fixnum (call $length (global.get $oblist))))
+            (call $terprif)))
 
        (global.set $num_mark (i32.const 0))
        (global.set $num_unmark (i32.const 0))
@@ -2446,22 +2459,26 @@
        (call $markStack)
        (call $reconstructOblist)
 
-       (call $printComment)
-       (call $printString (global.get $str_msg_gc2))  ;; marked
-       (call $printFixnum (call $int2fixnum (global.get $num_mark)))
-       (call $terprif)
+       (if (i32.eqz (global.get $suppress_gc_msg))
+           (then
+            (call $printComment)
+            (call $printString (global.get $str_msg_gc2))  ;; marked
+            (call $printFixnum (call $int2fixnum (global.get $num_mark)))
+            (call $terprif)))
 
        (call $sweepHeap)
 
-       (call $printComment)
-       (call $printString (global.get $str_msg_gc3))  ;; reclaimed
-       (call $printFixnum (call $int2fixnum (global.get $num_reclaim)))
-       (call $terprif)
-       (call $printComment)
-       (call $printString (global.get $str_msg_gc4))  ;; oblist
-       (call $printFixnum
-             (call $int2fixnum (call $length (global.get $oblist))))
-       (call $terprif)
+       (if (i32.eqz (global.get $suppress_gc_msg))
+           (then
+            (call $printComment)
+            (call $printString (global.get $str_msg_gc3))  ;; reclaimed
+            (call $printFixnum (call $int2fixnum (global.get $num_reclaim)))
+            (call $terprif)
+            (call $printComment)
+            (call $printString (global.get $str_msg_gc4))  ;; oblist
+            (call $printFixnum
+                  (call $int2fixnum (call $length (global.get $oblist))))
+            (call $terprif)))
 
        (i32.const 0))
  ;;; END GARBAGE COLLECTOR
@@ -2812,6 +2829,10 @@
              (global.get $sym_min) (global.get $str_min)
              (global.get $sym_fsubr)
              (call $int2fixnum (global.get $idx_min)))
+       (call $initsymKv
+             (global.get $sym_time) (global.get $str_time)
+             (global.get $sym_fsubr)
+             (call $int2fixnum (global.get $idx_time)))
 
        ;; APVAL
        (call $initsymKv
@@ -3076,6 +3097,22 @@
  (global $idx_nextsubr i32 (i32.const 202))
  (elem (i32.const 203) $subr_fencode)
  (global $idx_fencode i32 (i32.const 203))
+ (elem (i32.const 204) $subr_logand2)
+ (global $idx_logand2 i32 (i32.const 204))
+ (elem (i32.const 205) $subr_logor2)
+ (global $idx_logor2 i32 (i32.const 205))
+ (elem (i32.const 206) $subr_logxor2)
+ (global $idx_logxor2 i32 (i32.const 206))
+ (elem (i32.const 207) $subr_max2)
+ (global $idx_max2 i32 (i32.const 207))
+ (elem (i32.const 208) $subr_min2)
+ (global $idx_min2 i32 (i32.const 208))
+ (elem (i32.const 209) $subr_plus2)
+ (global $idx_plus2 i32 (i32.const 209))
+ (elem (i32.const 210) $subr_times2)
+ (global $idx_times2 i32 (i32.const 210))
+ (elem (i32.const 211) $fsubr_time)
+ (global $idx_time i32 (i32.const 211))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -3235,6 +3272,35 @@
            (local.set $ret (call $int2fixnum (local.get $acc))))
        (call $push (i32.const 0))  ;; Don't need to eval return value
        (local.get $ret))
+
+    (func $subr_plus2 (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (if (i32.eqz (call $fixnump (local.get $arg1)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
+       (if (i32.eqz (call $fixnump (local.get $arg2)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg2))))
+       (call $int2fixnum
+             (i32.add (call $fixnum2int (local.get $arg1))
+                      (call $fixnum2int (local.get $arg2)))))
+    (func $subr_times2 (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (if (i32.eqz (call $fixnump (local.get $arg1)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
+       (if (i32.eqz (call $fixnump (local.get $arg2)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg2))))
+       (call $int2fixnum
+             (i32.mul (call $fixnum2int (local.get $arg1))
+                      (call $fixnum2int (local.get $arg2)))))
 
  (func $subr_reclaim (result i32)
        (call $garbageCollect))
@@ -3759,6 +3825,48 @@
           (local.set $args (call $cdr (local.get $args)))
           (br $loop))
        (i32.const 0))
+  (func $subr_logand2 (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (if (i32.eqz (call $fixnump (local.get $arg1)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
+       (if (i32.eqz (call $fixnump (local.get $arg2)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg2))))
+       (call $int2fixnum
+             (i32.and (call $fixnum2int (local.get $arg1))
+                      (call $fixnum2int (local.get $arg2)))))
+  (func $subr_logor2 (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (if (i32.eqz (call $fixnump (local.get $arg1)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
+       (if (i32.eqz (call $fixnump (local.get $arg2)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg2))))
+       (call $int2fixnum
+             (i32.or (call $fixnum2int (local.get $arg1))
+                     (call $fixnum2int (local.get $arg2)))))
+  (func $subr_logxor2 (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (if (i32.eqz (call $fixnump (local.get $arg1)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
+       (if (i32.eqz (call $fixnump (local.get $arg2)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg2))))
+       (call $int2fixnum
+             (i32.xor (call $fixnum2int (local.get $arg1))
+                      (call $fixnum2int (local.get $arg2)))))
 
   (func $fsubr_max (result i32)
        (local $a i32)
@@ -3814,6 +3922,36 @@
           (local.set $args (call $cdr (local.get $args)))
           (br $loop))
        (i32.const 0))
+  (func $subr_max2 (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (if (i32.eqz (call $fixnump (local.get $arg1)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
+       (if (i32.eqz (call $fixnump (local.get $arg2)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg2))))
+       (if (i32.lt_s (call $fixnum2int (local.get $arg1))
+                     (call $fixnum2int (local.get $arg2)))
+           (return (local.get $arg2)))
+       (local.get $arg1))
+  (func $subr_min2 (result i32)
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (if (i32.eqz (call $fixnump (local.get $arg1)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
+       (if (i32.eqz (call $fixnump (local.get $arg2)))
+           (return (call $perr1 (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg2))))
+       (if (i32.lt_s (call $fixnum2int (local.get $arg1))
+                     (call $fixnum2int (local.get $arg2)))
+           (return (local.get $arg1)))
+       (local.get $arg2))
 
   (func $subr_nconc (result i32)
        (local $arg1 i32)
@@ -4603,6 +4741,54 @@
              ;; TODO: Return the specific error
              (return (call $makeStrError (global.get $str_err_generic))))
          (call $int2fixnum (local.get $arg1)))
+
+ (func $fsubr_time (result i32)
+       (local $args i32)
+       (local $a i32)
+       (local $ret i32)
+       (local $exp i32)
+       (local $n i32)
+       (local $start i64)
+       (local $end i64)
+       (local $duration i32)
+       (local $prev_suppress i32)
+       (local $prev_count i32)
+       (local $count i32)
+       (local.set $a (call $getAArg))
+       (local.set $args (call $cdr (call $getEArg)))
+       (local.set $exp (call $safecar (local.get $args)))
+       (local.set $n (call $safecar (call $safecdr (local.get $args))))
+       (if (call $fixnump (local.get $n))
+           (local.set $n (call $fixnum2int (local.get $n)))
+           (local.set $n (i32.const 1)))
+
+       (local.set $prev_suppress (global.get $suppress_gc_msg))
+       (local.set $prev_count (global.get $gc_count))
+       (global.set $suppress_gc_msg (i32.const 1))
+       (global.set $gc_count (i32.const 0))
+       (local.set $start (call $getTimeInMs))
+       (loop $loop
+          (local.set
+           $ret (call $eval (local.get $exp) (local.get $a)))
+          (local.set $n (i32.sub (local.get $n) (i32.const 1)))
+          (br_if $loop (i32.gt_s (local.get $n) (i32.const 0))))
+       (local.set $end (call $getTimeInMs))
+       (local.set $count (global.get $gc_count))
+       (global.set $suppress_gc_msg (local.get $prev_suppress))
+       (global.set $gc_count (local.get $prev_count))
+
+       (local.set
+        $duration (i32.wrap_i64 (i64.sub (local.get $end) (local.get $start))))
+       (call $printComment)
+       (call $printString (global.get $str_msg_time_ms))
+       (call $printObj (call $int2fixnum (local.get $duration)))
+       (call $terprif)
+       (call $printComment)
+       (call $printString (global.get $str_msg_gc_count))
+       (call $printObj (call $int2fixnum (local.get $count)))
+       (call $terprif)
+       (call $push (i32.const 0))  ;; Don't need to eval return value
+       (local.get $ret))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL
@@ -4913,13 +5099,22 @@
   "  (C::COMPILE-CODE SYM ARG (SCAR (SCDR (SCDR X)))))) "
   "(DE C::COMPILE-QUOTE-CALL (SYM ARG X) "  ;; X of (QUOTE . X=(exp))
   " (LIST 'CONST (SCAR X))) "
+  "(DE C::COMPILE-LSUBR-CALL (SYM ARGS IDX X) "
+  " (C::COMPILE-SUBR-CALL SYM ARGS (LIST IDX 2) X)) "
   "(DE C::COMPILE-SPECIAL-CALL (SYM ARG X) "
   " (COND "
   "  ((EQ (CAR X) 'IF) (C::COMPILE-IF-CALL SYM ARG (CDR X))) "
   "  ((EQ (CAR X) 'QUOTE) (C::COMPILE-QUOTE-CALL SYM ARG (CDR X))) "
+  "  ((EQ (CAR X) 'LOGAND2) (C::COMPILE-LSUBR-CALL SYM ARG 204 (CDR X))) "
+  "  ((EQ (CAR X) 'LOGOR2) (C::COMPILE-LSUBR-CALL SYM ARG 205 (CDR X))) "
+  "  ((EQ (CAR X) 'LOGXOR2) (C::COMPILE-LSUBR-CALL SYM ARG 206 (CDR X))) "
+  "  ((EQ (CAR X) 'MAX2) (C::COMPILE-LSUBR-CALL SYM ARG 207 (CDR X))) "
+  "  ((EQ (CAR X) 'MIN2) (C::COMPILE-LSUBR-CALL SYM ARG 208 (CDR X))) "
+  "  ((EQ (CAR X) 'PLUS2) (C::COMPILE-LSUBR-CALL SYM ARG 209 (CDR X))) "
+  "  ((EQ (CAR X) 'TIMES2) (C::COMPILE-LSUBR-CALL SYM ARG 210 (CDR X))) "
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported|)))))"
   "(DE C::SPECIALFNP (X) "
-  " (MEMBER X '(IF QUOTE))) "
+  " (MEMBER X '(IF QUOTE LOGAND2 LOGOR2 LOGXOR2 MAX2 MIN2 PLUS2 TIMES2))) "
   "(DE C::COMPILE-COMP (SYM ARGS X) "
   " (COND "
   "  ((C::SPECIALFNP (CAR X)) (C::COMPILE-SPECIAL-CALL SYM ARGS X)) "
@@ -4932,20 +5127,33 @@
   "(DE C::TRANSFORM-COND (X) "  ;; X of (COND . X)
   " (IF (NULL X) "
   "  NIL"
-  "  (LIST 'IF (SCAR (CAR X)) "
-  "   (SCAR (SCDR (CAR X))) "
+  "  (LIST 'IF (C::TRANSFORM (SCAR (CAR X))) "
+  "   (C::TRANSFORM (SCAR (SCDR (CAR X)))) "
   "   (C::TRANSFORM-COND (CDR X))))) "
   "(DE C::TRANSFORM-AND (X) "  ;; X of (AND . X)
   " (COND ((NULL X) T)"
-  "  ((NULL (CDR X)) (CAR X))"
-  "  (T (LIST 'IF (LIST 'NOT (CAR X)) "
+  "  ((NULL (CDR X)) (C::TRANSFORM (CAR X)))"
+  "  (T (LIST 'IF (LIST 'NOT (C::TRANSFORM (CAR X))) "
   "   NIL "
   "   (C::TRANSFORM-AND (CDR X)))))) "
+  "(DE C::TRANSFORM-LSUBR (FN X D) "
+  " (COND ((NULL X) D)"
+  "  ((NULL (CDR X)) (C::TRANSFORM (CAR X)))"
+  "  (T (LIST FN (C::TRANSFORM (CAR X)) (C::TRANSFORM-LSUBR FN (CDR X) D))))) "
   "(DE C::TRANSFORM (EXP) "
   " (COND "
   "  ((ATOM EXP) EXP) "
-  "  ((EQ (CAR EXP) 'COND) (C::TRANSFORM-COND (CDR EXP)))"
-  "  ((EQ (CAR EXP) 'AND) (C::TRANSFORM-AND (CDR EXP)))"
+  "  ((EQ (CAR EXP) 'COND) (C::TRANSFORM-COND (CDR EXP))) "
+  "  ((EQ (CAR EXP) 'AND) (C::TRANSFORM-AND (CDR EXP))) "
+  "  ((EQ (CAR EXP) 'LOGAND) (C::TRANSFORM-LSUBR 'LOGAND2 (CDR EXP) -1)) "
+  "  ((EQ (CAR EXP) 'LOGOR) (C::TRANSFORM-LSUBR 'LOGOR2 (CDR EXP) 0)) "
+  "  ((EQ (CAR EXP) 'LOGXOR) (C::TRANSFORM-LSUBR 'LOGXOR2 (CDR EXP) 0)) "
+  "  ((EQ (CAR EXP) 'MAX) (C::TRANSFORM-LSUBR 'MAX2 (CDR EXP) 0)) "
+  "  ((EQ (CAR EXP) 'MIN) (C::TRANSFORM-LSUBR 'MIN2 (CDR EXP) 0)) "
+  "  ((EQ (CAR EXP) 'PLUS) (C::TRANSFORM-LSUBR 'PLUS2 (CDR EXP) 0)) "
+  "  ((EQ (CAR EXP) '+) (C::TRANSFORM-LSUBR 'PLUS2 (CDR EXP) 0)) "
+  "  ((EQ (CAR EXP) 'TIMES) (C::TRANSFORM-LSUBR 'TIMES2 (CDR EXP) 1)) "
+  "  ((EQ (CAR EXP) '*) (C::TRANSFORM-LSUBR 'TIMES2 (CDR EXP) 1)) "
   "  (T (MAPLIST EXP (FUNCTION (LAMBDA (Y) (C::TRANSFORM (CAR Y)))))))) "
   "(DE C::VERIFY0 (SYM FN) (PROG () "
   " (IF (ATOM FN) (ERROR (SYMCAT SYM '$$| is not a function|))) "
@@ -4992,6 +5200,11 @@
        (global.set $printp (i32.const 40960)))
 
  (func (export "init")
+       (local $tmp i64)
+       (local $tmp2 i32)
+       (local.set $tmp (call $getTimeInMs))
+       (local.set $tmp2 (i32.wrap_i64 (local.get $tmp)))
+       (call $log (local.get $tmp2))
        (call $init)
        (call $initexpr))
 

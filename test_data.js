@@ -423,4 +423,45 @@ test_data.push([
     ["(quotefn2)", "(A B C)"],
     ["(compile '(quotefn2))", "NIL"],
     ["(quotefn2)", "(A B C)"],
+
+    ["(defun logandfn () (logand 0xff 0x7f 0x3f))", "LOGANDFN"],
+    ["(logandfn)", "63"],
+    ["(compile '(logandfn))", "NIL"],
+    ["(logandfn)", "63"],
+
+    ["(defun logorfn () (logor 0xff 0x7f 0x3f))", "LOGORFN"],
+    ["(logorfn)", "255"],
+    ["(compile '(logorfn))", "NIL"],
+    ["(logorfn)", "255"],
+
+    ["(defun logxorfn () (logxor 0xff 0x7f 0x3f))", "LOGXORFN"],
+    ["(logxorfn)", "191"],
+    ["(compile '(logxorfn))", "NIL"],
+    ["(logxorfn)", "191"],
+
+    ["(defun maxfn () (max 7 3 9))", "MAXFN"],
+    ["(maxfn)", "9"],
+    ["(compile '(maxfn))", "NIL"],
+    ["(maxfn)", "9"],
+
+    ["(defun minfn () (min 7 3 9))", "MINFN"],
+    ["(minfn)", "3"],
+    ["(compile '(minfn))", "NIL"],
+    ["(minfn)", "3"],
+
+    ["(defun plusfn () (+ 2 3 4))", "PLUSFN"],
+    ["(plusfn)", "9"],
+    ["(compile '(plusfn))", "NIL"],
+    ["(plusfn)", "9"],
+
+    ["(defun timesfn () (* 2 3 4))", "TIMESFN"],
+    ["(timesfn)", "24"],
+    ["(compile '(timesfn))", "NIL"],
+    ["(timesfn)", "24"],
+
+    ["(defun factfn (n) (cond ((zerop n) 1) (t (* n (factfn (1- n))))))",
+     "FACTFN"],
+    ["(factfn 10)", "3628800"],
+    ["(compile '(factfn))", "NIL"],
+    ["(factfn 10)", "3628800"],
 ]);

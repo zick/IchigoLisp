@@ -26,7 +26,10 @@ var importObject = {
                 .then(obj => {
                     modules.push(obj);
                 });
-        }
+        },
+        getTimeInMs: function() {
+            return BigInt(new Date().getTime());
+        },
     },
 };
 
