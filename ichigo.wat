@@ -4765,12 +4765,15 @@
   " (BWRITE 0x01) "  ;; 1 function
   " (BWRITE 0x00) "  ;; function index 0 (see function section)
   ")) "
-  "(DE C::CODE-SECTION (ASM) (PROG (INST) "
+  "(DE C::CODE-SECTION (ASM) (PROG (INST LEN CS SS) "
   " (SETQ INST (C::ASSEMBLE-CODE ASM)) "
+  " (SETQ LEN (LENGTH INST)) "
+  " (SETQ CS (ULEB128 (+ 0x0b (LENGTH INST)))) "
+  " (SETQ SS (ULEB128 (+ 0x0c (LENGTH INST) (LENGTH CS)))) "
   " (BWRITE 0x0a) "  ;; section number
-  " (BWRITE (+ 0x0d (LENGTH INST))) "  ;; section size
+  " (BWRITES SS) "  ;; section size
   " (BWRITE 0x01) "  ;; 1 entry
-  " (BWRITE (+ 0x0b (LENGTH INST))) "  ;; code size
+  " (BWRITES CS) "  ;; code size
   " (BWRITE 0x01) "  ;; 1 local variable ($frame)
   " (BWRITE 0x01) "  ;; 1 local variable with the same type ($frame)
   " (BWRITE 0x7f) "  ;; i32
@@ -4908,12 +4911,15 @@
   "  (C::COMPILE-CODE SYM ARG (SCAR X)) "
   "  (C::COMPILE-CODE SYM ARG (SCAR (SCDR X))) "
   "  (C::COMPILE-CODE SYM ARG (SCAR (SCDR (SCDR X)))))) "
+  "(DE C::COMPILE-QUOTE-CALL (SYM ARG X) "  ;; X of (QUOTE . X=(exp))
+  " (LIST 'CONST (SCAR X))) "
   "(DE C::COMPILE-SPECIAL-CALL (SYM ARG X) "
   " (COND "
   "  ((EQ (CAR X) 'IF) (C::COMPILE-IF-CALL SYM ARG (CDR X))) "
+  "  ((EQ (CAR X) 'QUOTE) (C::COMPILE-QUOTE-CALL SYM ARG (CDR X))) "
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported|)))))"
   "(DE C::SPECIALFNP (X) "
-  " (MEMBER X '(IF))) "
+  " (MEMBER X '(IF QUOTE))) "
   "(DE C::COMPILE-COMP (SYM ARGS X) "
   " (COND "
   "  ((C::SPECIALFNP (CAR X)) (C::COMPILE-SPECIAL-CALL SYM ARGS X)) "
@@ -4923,6 +4929,24 @@
   " (COND "
   "  ((ATOM X) (C::COMPILE-ATOM X ARGS)) "
   "  (T (C::COMPILE-COMP SYM ARGS X)))) "
+  "(DE C::TRANSFORM-COND (X) "  ;; X of (COND . X)
+  " (IF (NULL X) "
+  "  NIL"
+  "  (LIST 'IF (SCAR (CAR X)) "
+  "   (SCAR (SCDR (CAR X))) "
+  "   (C::TRANSFORM-COND (CDR X))))) "
+  "(DE C::TRANSFORM-AND (X) "  ;; X of (AND . X)
+  " (COND ((NULL X) T)"
+  "  ((NULL (CDR X)) (CAR X))"
+  "  (T (LIST 'IF (LIST 'NOT (CAR X)) "
+  "   NIL "
+  "   (C::TRANSFORM-AND (CDR X)))))) "
+  "(DE C::TRANSFORM (EXP) "
+  " (COND "
+  "  ((ATOM EXP) EXP) "
+  "  ((EQ (CAR EXP) 'COND) (C::TRANSFORM-COND (CDR EXP)))"
+  "  ((EQ (CAR EXP) 'AND) (C::TRANSFORM-AND (CDR EXP)))"
+  "  (T (MAPLIST EXP (FUNCTION (LAMBDA (Y) (C::TRANSFORM (CAR Y)))))))) "
   "(DE C::VERIFY0 (SYM FN) (PROG () "
   " (IF (ATOM FN) (ERROR (SYMCAT SYM '$$| is not a function|))) "
   " (IF (NOT (EQ (CAR FN) 'LAMBDA)) "
@@ -4934,6 +4958,7 @@
   " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
   " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR|))) "
   " (C::VERIFY0 SYM FN) "
+  " (SETQ FN (C::TRANSFORM FN)) "
   " (C::ASSEMBLE (C::COMPILE-CODE SYM (CADR FN) (CAR (CDDR FN)))) "
   ;; ;; HACK: Keep the whole function to protect from GC.
   ;; ;; HACK: OBJS should be a list of objects used by compiled function.

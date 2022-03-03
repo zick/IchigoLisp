@@ -399,4 +399,28 @@ test_data.push([
     ["(compile '(iffn))", "NIL"],
     ["(iffn t)", "2"],
     ["(iffn nil)", "3"],
+
+    ["(de condfn (x) (cond ((null x) 0) (t 1)))", "CONDFN"],
+    ["(condfn nil)", "0"],
+    ["(condfn t)", "1"],
+    ["(compile '(condfn))", "NIL"],
+    ["(condfn nil)", "0"],
+    ["(condfn t)", "1"],
+
+    ["(defun andfn (x y) (and (print x) (print y) 99))", "ANDFN"],
+    ["(andfn 1 2)", "99"],
+    ["(andfn nil 2)", "NIL"],
+    ["(compile '(andfn))", "NIL"],
+    ["(andfn 1 2)", "99"],
+    ["(andfn nil 2)", "NIL"],
+
+    ["(defun quotefn () (cons 'a 'b))", "QUOTEFN"],
+    ["(quotefn)", "(A . B)"],
+    ["(compile '(quotefn))", "NIL"],
+    ["(quotefn)", "(A . B)"],
+
+    ["(defun quotefn2 () (cons 'a '(b c)))", "QUOTEFN2"],
+    ["(quotefn2)", "(A B C)"],
+    ["(compile '(quotefn2))", "NIL"],
+    ["(quotefn2)", "(A B C)"],
 ]);
