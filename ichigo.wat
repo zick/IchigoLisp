@@ -4878,6 +4878,9 @@
   " (SET-DIFFERENCE (LAMBDA (X Y) (COND ((NULL X) NIL) "
   "  ((MEMBER (CAR X) Y) (SET-DIFFERENCE (CDR X) Y)) "
   "  (T (CONS (CAR X) (SET-DIFFERENCE (CDR X) Y)))))) "
+  " (REMOVE-DUPLICATES (LAMBDA (X) (COND ((NULL X) NIL) "
+  "  ((MEMBER (CAR X) (CDR X)) (REMOVE-DUPLICATES (CDR X))) "
+  "  (T (CONS (CAR X) (REMOVE-DUPLICATES (CDR X))))))) "
   ")) "
   ;; Compiler (WIP)
   ;; https://en.wikipedia.org/wiki/LEB128
@@ -5046,6 +5049,14 @@
   "  (LIST 0x05) "
   "  (C::ASSEMBLE-CODE (CAR (CDDR X))) "
   "  (LIST 0x0b))) "
+  "(DE C::GET-CONSTS (ASM) "
+  " (REMOVE-DUPLICATES ((LABEL REC (LAMBDA (AS) "
+  "   (COND "
+  "    ((ATOM AS) NIL) "
+  "    ((AND (EQ (CAR AS) 'CONST) (CADR AS) (NOT (NUMBERP (CADR AS)))) "
+  "     (LIST (CADR AS))) "
+  "    (T (MAPCON (CDR AS) (FUNCTION (LAMBDA (Y) (REC (CAR Y))))))))) "
+  "  ASM))) "
   "(DE C::COMPILE-ARG (N) "
   " (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) (+ 11 N))) " ;; 11: getArgF1
   "(DE C::COMPILE-APVAL (CELL) "
@@ -5178,15 +5189,16 @@
   "  ((EQ (CAR EXP) 'TIMES) (C::TRANSFORM-LSUBR 'TIMES2 (CDR EXP) 1)) "
   "  ((EQ (CAR EXP) '*) (C::TRANSFORM-LSUBR 'TIMES2 (CDR EXP) 1)) "
   "  (T (MAPLIST EXP (FUNCTION (LAMBDA (Y) (C::TRANSFORM (CAR Y)))))))) "
-  "(DE C::CAPTURED-VARS (ARGS EXP INL) "
-  " (COND"
-  "  ((ATOM EXP) (IF (AND INL (MEMBER EXP ARGS)) (LIST EXP) NIL)) "
-  "  ((EQ (CAR EXP) 'QUOTE) NIL) "
-  "  ((EQ (CAR EXP) 'LAMBDA) "
-  "   (C::CAPTURED-VARS "
-  "    (SET-DIFFERENCE ARGS (CADR EXP)) (CAR (CDDR EXP)) T)) "
-  "  (T (MAPCON EXP (FUNCTION (LAMBDA (Y) "
-  "   (C::CAPTURED-VARS ARGS (CAR Y) INL)))))))"
+  "(DE C::CAPTURED-VARS (ARGS EXP) "
+  " (REMOVE-DUPLICATES ((LABEL REC (LAMBDA (ARGS E INL) "
+  "  (COND"
+  "   ((ATOM E) (IF (AND INL (MEMBER E ARGS)) (LIST E) NIL)) "
+  "   ((EQ (CAR E) 'QUOTE) NIL) "
+  "   ((EQ (CAR E) 'LAMBDA) "
+  "    (REC "
+  "     (SET-DIFFERENCE ARGS (CADR E)) (CAR (CDDR E)) T)) "
+  "   (T (MAPCON E (FUNCTION (LAMBDA (Y) "
+  "    (REC ARGS (CAR Y) INL)))))))) ARGS EXP NIL))) "
   "(DE C::VERIFY0 (SYM FN) (PROG () "
   " (IF (ATOM FN) (ERROR (SYMCAT SYM '$$| is not a function|))) "
   " (IF (NOT (EQ (CAR FN) 'LAMBDA)) "
@@ -5194,17 +5206,16 @@
   " (IF (> (LENGTH (CADR FN)) 4) "  ;; TODO: Remove this restriction
   "  (ERROR '$$|more than 4 arguments are not supported|)) "
   " )) "
-  "(DE C::COMPILE1 (SYM) (PROG (FN OBJS) "
+  "(DE C::COMPILE1 (SYM) (PROG (FN OBJS ASM) "
   " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
   " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR|))) "
   " (C::VERIFY0 SYM FN) "
-  " (IF (C::CAPTURED-VARS (CADR FN) (CAR (CDDR FN)) NIL) "  ;; TODO: Remove
+  " (IF (C::CAPTURED-VARS (CADR FN) (CAR (CDDR FN))) "  ;; TODO: Remove
   "  (ERROR '$$|LAMBDA cannot capture outer variables so far|)) "
   " (SETQ FN (C::TRANSFORM FN)) "
-  " (C::ASSEMBLE (C::COMPILE-CODE SYM (CADR FN) (CAR (CDDR FN)))) "
-  ;; ;; HACK: Keep the whole function to protect from GC.
-  ;; ;; HACK: OBJS should be a list of objects used by compiled function.
-  " (SETQ OBJS FN) "
+  " (SETQ ASM (C::COMPILE-CODE SYM (CADR FN) (CAR (CDDR FN)))) "
+  " (C::ASSEMBLE ASM) "
+  " (SETQ OBJS (C::GET-CONSTS ASM)) "
   " (PUTPROP SYM (LIST (LOAD-WASM) (LENGTH (CADR FN)) OBJS) 'SUBR) "
   " (REMPROP SYM 'EXPR) "  ;; TODO: Support FEXPR
   " ))"
