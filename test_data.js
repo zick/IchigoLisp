@@ -481,4 +481,9 @@ test_data.push([
     ["(compile '(fargfn))", "NIL"],
     ["(fargfn '(lambda(x) (1+ x)))", "100"],
     ["(fargfn '1-)", "98"],
+
+    ["(defun listfn () (list 1 (+ 2 3) 4))", "LISTFN"],
+    ["(listfn)", "(1 5 4)"],
+    ["(compile '(listfn))", "NIL"],
+    ["(listfn)", "(1 5 4)"],
 ]);
