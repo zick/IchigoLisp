@@ -464,4 +464,21 @@ test_data.push([
     ["(factfn 10)", "3628800"],
     ["(compile '(factfn))", "NIL"],
     ["(factfn 10)", "3628800"],
+
+    ["(defun lambdafn () ((lambda(x)(cons x x)) 1))", "LAMBDAFN"],
+    ["(lambdafn)", "(1 . 1)"],
+    ["(compile '(lambdafn))", "NIL"],
+    ["(lambdafn)", "(1 . 1)"],
+
+    ["(defun compfn () ((car '((lambda(x)(cons x x)))) 'a))", "COMPFN"],
+    ["(compfn)", "(A . A)"],
+    ["(compile '(compfn))", "NIL"],
+    ["(compfn)", "(A . A)"],
+
+    ["(defun fargfn (f) (f 99))", "FARGFN"],
+    ["(fargfn '(lambda(x) (1+ x)))", "100"],
+    ["(fargfn '1-)", "98"],
+    ["(compile '(fargfn))", "NIL"],
+    ["(fargfn '(lambda(x) (1+ x)))", "100"],
+    ["(fargfn '1-)", "98"],
 ]);

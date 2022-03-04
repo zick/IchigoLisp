@@ -1918,19 +1918,22 @@
          (call $cadr (local.get $fn))
          (local.get $aarg)
          (local.get $alist))))
- (func $funcCall (param $sym i32) (param $narg i32) (result i32)
+ (func $funcCall (param $fn i32) (param $narg i32) (result i32)
        (local $tmp i32)
        ;; Check if it's EXPR
-       (local.set $tmp (call $get (local.get $sym) (global.get $sym_expr)))
+       (local.set $tmp (call $get (local.get $fn) (global.get $sym_expr)))
        (if (i32.ne (local.get $tmp) (i32.const 0))
            (return (call $exprCall (local.get $tmp) (local.get $narg))))
        ;; Check if it's SUBR
-       (local.set $tmp (call $get (local.get $sym) (global.get $sym_subr)))
+       (local.set $tmp (call $get (local.get $fn) (global.get $sym_subr)))
        (if (i32.ne (local.get $tmp) (i32.const 0))
            (return (call $subrCall
                          (call $fixnum2int (call $car (local.get $tmp)))
                          (local.get $narg))))
-       ;; Error: $sym is not a function
+       ;; Check if it's LAMBDA
+       (if (i32.eq (call $safecar (local.get $fn)) (global.get $sym_lambda))
+           (return (call $exprCall (local.get $fn) (local.get $narg))))
+       ;; Error: $fn is not a function
        ;; Remove arguments and alist from stack
        (global.set
         $sp (i32.sub (global.get $sp)
@@ -1938,7 +1941,7 @@
                               (i32.const 4))))
        (call $perr1
              (call $makeStrError (global.get $str_err_nodef))
-             (local.get $sym)))
+             (local.get $fn)))
  ;;; FSUBR Stack: (..., e, a)
  (func $fsubrCall (param $idx i32) (result i32)
        (local $ret i32)
@@ -4872,6 +4875,9 @@
   "  (INTERN (MKNAM))))) "
   " (SCAR (LAMBDA (X) (IF (NULL X) X (CAR X)))) "
   " (SCDR (LAMBDA (X) (IF (NULL X) X (CDR X)))) "
+  " (SET-DIFFERENCE (LAMBDA (X Y) (COND ((NULL X) NIL) "
+  "  ((MEMBER (CAR X) Y) (SET-DIFFERENCE (CDR X) Y)) "
+  "  (T (CONS (CAR X) (SET-DIFFERENCE (CDR X) Y)))))) "
   ")) "
   ;; Compiler (WIP)
   ;; https://en.wikipedia.org/wiki/LEB128
@@ -5017,17 +5023,17 @@
   "  (T (ERROR (SYMCAT X '$$| is not supported type|))))) "
   "(DE C::ASSEMBLE-CALL (X) "  ;; X of (CALL . X=(TYPE . ARGS))
   " (NCONC "
-  ;; ;; Push arguments
+     ;; Push arguments
   "  (MAPCON (CDR X) (FUNCTION (LAMBDA (Y) "
   "   (C::ASSEMBLE-CODE (CAR Y))))) "
-  ;; ;; Call the function.
+     ;; Call the function.
   "  (LIST 0x11 (C::ASSEMBLE-TYPE (CAR X)) 0x00))) "  ;; call_indirect
   "(DE C::ASSEMBLE-LOAD (X) "  ;; X of (LOAD . X=(CELL))
   " (NCONC "
-  ;; ;; Push the address
+     ;; Push the address
   "  (MAPCON X (FUNCTION (LAMBDA (Y) "
   "   (C::ASSEMBLE-CODE (CAR Y))))) "
-  ;; ;; Load
+     ;; Load
   "  (LIST 0x28 0x02 0x00))) "  ;; align=2 (I'm not sure if it's necessary)
   "(DE C::ASSEMBLE-PROGN (X) "  ;; X of (PROGN . X)
   " (MAPCON X (FUNCTION (LAMBDA (Y) "
@@ -5056,42 +5062,54 @@
   "(DE C::COMPILE-SUBR-CALL (SYM ARGS SB AA) "
   " (CONC "
   "  (LIST 'PROGN) "
-  ;; ;; Push alist (10: getAArgFInSubr)
+     ;; Push alist (10: getAArgFInSubr)
   "  (LIST (LIST 'CALL 'I2V (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) 1)) "
-  ;; ;; Push arguments
+     ;; Push arguments
   "  (MAPLIST AA "
   "   (FUNCTION (LAMBDA (Y) "
   "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
   "  (LIST (LIST 'CALL 'II2I (CAR SB) (LENGTH AA) 20)))) "  ;; 20: subrCall
+  ;;; FN should be an instruction
   "(DE C::COMPILE-FUNC-CALL (SYM ARGS FN AA) "
   " (CONC "
   "  (LIST 'PROGN) "
-  ;; ;; Push alist (10: getAArgFInSubr)
+     ;; Push alist (10: getAArgFInSubr)
   "  (LIST (LIST 'CALL 'I2V (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) 1)) "
-  ;; ;; Push arguments
+     ;; Push arguments
   "  (MAPLIST AA "
   "   (FUNCTION (LAMBDA (Y) "
   "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
-  "  (LIST (LIST 'CALL 'II2I (LIST 'CONST FN) (LENGTH AA) 21)))) "  ;; funcCall
+  "  (LIST (LIST 'CALL 'II2I FN (LENGTH AA) 21)))) "  ;; 21: funcCall
   "(DE C::COMPILE-FSUBR-CALL (SYM ARGS FS E) "
   " (CONC "
   "  (LIST 'PROGN) "
-  ;; ;; Push expression
+     ;; Push expression
   "  (LIST (LIST 'CALL 'I2V (LIST 'CONST E) 1)) "
-  ;; ;; Push alist
+     ;; Push alist
   "  (LIST (LIST 'CALL 'I2V "
   "   (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) 1)) "
-  ;; ;; Push arguments
+     ;; Push arguments
   "  (LIST (LIST 'CALL 'I2I FS 23)))) "  ;; 23: fsubrCall
-  "(DE C::COMPILE-SYM-CALL (SYM ARGS X) (PROG (SB FS) "
+  "(DE C::COMPILE-SYM-CALL (SYM ARGS X) (PROG (SB FS EX) "
   " (SETQ SB (GET (CAR X) 'SUBR)) "
   " (SETQ FS (GET (CAR X) 'FSUBR)) "
+  " (SETQ EX (GET (CAR X) 'EXPR)) "
+    ;; TODO: Support FEXPR
   " (RETURN (COND "
   "  (FS "
   "   (C::COMPILE-FSUBR-CALL SYM ARGS FS X)) "
+     ;; Primitive SUBRs
   "  ((AND SB (< (CAR SB) 300)) "  ;; <300 means primitive SUBRs
   "   (C::COMPILE-SUBR-CALL SYM ARGS SB (CDR X))) "
-  "  (T (C::COMPILE-FUNC-CALL SYM ARGS (CAR X) (CDR X))))))) "
+     ;; Prefer global function
+  "  ((OR SB FS EX) "
+  "   (C::COMPILE-FUNC-CALL SYM ARGS (LIST 'CONST (CAR X)) (CDR X))) "
+     ;; Call local function if exists
+  "  ((MEMBER (CAR X) ARGS) "
+  "   (C::COMPILE-FUNC-CALL SYM ARGS "
+  "    (C::COMPILE-ARG (POSITION (CAR X) ARGS)) (CDR X))) "
+     ;; Assume the function will be defined later
+  "  (T (C::COMPILE-FUNC-CALL SYM ARGS (LIST 'CONST (CAR X)) (CDR X))))))) "
   "(DE C::COMPILE-IF-CALL (SYM ARG X) "  ;; X of (IF . X=(c th el))
   " (LIST 'IF "
   "  (C::COMPILE-CODE SYM ARG (SCAR X)) "
@@ -5115,11 +5133,16 @@
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported|)))))"
   "(DE C::SPECIALFNP (X) "
   " (MEMBER X '(IF QUOTE LOGAND2 LOGOR2 LOGXOR2 MAX2 MIN2 PLUS2 TIMES2))) "
+  "(DE C::COMPILE-LIST-CALL (SYM ARGS FN AA) "
+  " (COND "
+  "  ((EQ (CAR FN) 'LAMBDA) "
+  "   (C::COMPILE-FUNC-CALL SYM ARGS (LIST 'CONST FN) AA)) "
+  "  (T (C::COMPILE-FUNC-CALL SYM ARGS (C::COMPILE-CODE SYM ARGS FN) AA)))) "
   "(DE C::COMPILE-COMP (SYM ARGS X) "
   " (COND "
   "  ((C::SPECIALFNP (CAR X)) (C::COMPILE-SPECIAL-CALL SYM ARGS X)) "
   "  ((ATOM (CAR X)) (C::COMPILE-SYM-CALL SYM ARGS X)) "
-  "  (T (ERROR '$$|non-atom functions are not supported|)))) "
+  "  (T (C::COMPILE-LIST-CALL SYM ARGS (CAR X) (CDR X))))) "
   "(DE C::COMPILE-CODE (SYM ARGS X) "
   " (COND "
   "  ((ATOM X) (C::COMPILE-ATOM X ARGS)) "
@@ -5155,6 +5178,15 @@
   "  ((EQ (CAR EXP) 'TIMES) (C::TRANSFORM-LSUBR 'TIMES2 (CDR EXP) 1)) "
   "  ((EQ (CAR EXP) '*) (C::TRANSFORM-LSUBR 'TIMES2 (CDR EXP) 1)) "
   "  (T (MAPLIST EXP (FUNCTION (LAMBDA (Y) (C::TRANSFORM (CAR Y)))))))) "
+  "(DE C::CAPTURED-VARS (ARGS EXP INL) "
+  " (COND"
+  "  ((ATOM EXP) (IF (AND INL (MEMBER EXP ARGS)) (LIST EXP) NIL)) "
+  "  ((EQ (CAR EXP) 'QUOTE) NIL) "
+  "  ((EQ (CAR EXP) 'LAMBDA) "
+  "   (C::CAPTURED-VARS "
+  "    (SET-DIFFERENCE ARGS (CADR EXP)) (CAR (CDDR EXP)) T)) "
+  "  (T (MAPCON EXP (FUNCTION (LAMBDA (Y) "
+  "   (C::CAPTURED-VARS ARGS (CAR Y) INL)))))))"
   "(DE C::VERIFY0 (SYM FN) (PROG () "
   " (IF (ATOM FN) (ERROR (SYMCAT SYM '$$| is not a function|))) "
   " (IF (NOT (EQ (CAR FN) 'LAMBDA)) "
@@ -5166,6 +5198,8 @@
   " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
   " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR|))) "
   " (C::VERIFY0 SYM FN) "
+  " (IF (C::CAPTURED-VARS (CADR FN) (CAR (CDDR FN)) NIL) "  ;; TODO: Remove
+  "  (ERROR '$$|LAMBDA cannot capture outer variables so far|)) "
   " (SETQ FN (C::TRANSFORM FN)) "
   " (C::ASSEMBLE (C::COMPILE-CODE SYM (CADR FN) (CAR (CDDR FN)))) "
   ;; ;; HACK: Keep the whole function to protect from GC.
@@ -5200,11 +5234,6 @@
        (global.set $printp (i32.const 40960)))
 
  (func (export "init")
-       (local $tmp i64)
-       (local $tmp2 i32)
-       (local.set $tmp (call $getTimeInMs))
-       (local.set $tmp2 (i32.wrap_i64 (local.get $tmp)))
-       (call $log (local.get $tmp2))
        (call $init)
        (call $initexpr))
 
