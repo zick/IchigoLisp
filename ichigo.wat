@@ -447,6 +447,10 @@
  (global $str_time i32 (i32.const 3330))
  (data (i32.const 3340) "C::VCTAG\00")  ;; 9
  (global $str_vctag i32 (i32.const 3340))
+ (data (i32.const 3350) "EVAL-ENTER-HOOK\00")  ;; 16 !!!
+ (global $str_eval_enter_hook i32 (i32.const 3350))
+ (data (i32.const 3370) "STOP\00")  ;; 5
+ (global $str_stop i32 (i32.const 3370))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -587,7 +591,9 @@
  (global $sym_fencode i32 (i32.const 0x0438))
  (global $sym_time i32 (i32.const 0x0440))
  (global $sym_vctag i32 (i32.const 0x0448))
- (global $primitive_obj_end i32 (i32.const 0x0450))
+ (global $sym_eval_enter_hook i32 (i32.const 0x0450))
+ (global $sym_stop i32 (i32.const 0x0458))
+ (global $primitive_obj_end i32 (i32.const 0x0460))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -2591,6 +2597,9 @@
        (call $initsym0 (global.get $sym_eor) (global.get $str_eor))
        (call $initsym0 (global.get $sym_traceset) (global.get $str_traceset))
        (call $initsym0 (global.get $sym_vctag) (global.get $str_vctag))
+       (call $initsym0 (global.get $sym_eval_enter_hook)
+             (global.get $str_eval_enter_hook))
+       (call $initsym0 (global.get $sym_stop) (global.get $str_stop))
 
        (call $initsym1
              (global.get $sym_nil) (global.get $str_nil) (i32.const 0))
@@ -3774,12 +3783,15 @@
        (local $val i32)
        (local.set $a (call $getAArg))
        (local.set $args (call $cdr (call $getEArg)))
-       (call $push (i32.const 1))  ;; *Need* to eval return value
+       (call $push (i32.const 0))  ;; Don't need to eval return value
        (if (i32.eqz (local.get $args))
            (return (global.get $sym_tstar)))
        (loop $loop
           (if (i32.eqz (call $cdr (local.get $args)))
-              (return (call $car (local.get $args))))
+              (then
+               (call $drop (call $pop))  ;; Drop 0
+               (call $push (i32.const 1))  ;; *Need* to eval return value
+               (return (call $car (local.get $args)))))
           (local.set
            $val (call $eval (call $car (local.get $args)) (local.get $a)))
           (if (call $errorp (local.get $val))
@@ -3795,12 +3807,15 @@
        (local $val i32)
        (local.set $a (call $getAArg))
        (local.set $args (call $cdr (call $getEArg)))
-       (call $push (i32.const 1))  ;; *Need* to eval return value
+       (call $push (i32.const 0))  ;; Don't need to eval return value
        (if (i32.eqz (local.get $args))
            (return (i32.const 0)))
        (loop $loop
           (if (i32.eqz (call $cdr (local.get $args)))
-              (return (call $car (local.get $args))))
+              (then
+               (call $drop (call $pop))  ;; Drop 0
+               (call $push (i32.const 1))  ;; *Need* to eval return value
+               (return (call $car (local.get $args)))))
           (local.set
            $val (call $eval (call $car (local.get $args)) (local.get $a)))
           (if (call $errorp (local.get $val))
@@ -4914,6 +4929,8 @@
   " (CADR (LAMBDA (X) (CAR (CDR X)))) "
   " (CDAR (LAMBDA (X) (CDR (CAR X)))) "
   " (CDDR (LAMBDA (X) (CDR (CDR X)))) "
+  " (SCAR (LAMBDA (X) (IF (NULL X) X (CAR X)))) "
+  " (SCDR (LAMBDA (X) (IF (NULL X) X (CDR X)))) "
   " (CONSP (LAMBDA (X) (NOT (ATOM X)))) "
   " (SYMBOLP (LAMBDA (X) (AND (ATOM X) (NOT (NUMBERP X))))) "
   " (POSITION (LAMBDA (KEY LST) ((LABEL REC (LAMBDA (L N) "
@@ -4928,8 +4945,6 @@
   " (SYMCAT (LAMBDA (X Y) (PROG2 (MAP (NCONC (UNPACK X) (UNPACK Y)) "
   "  (FUNCTION (LAMBDA (X) (PACK (CAR X))))) "
   "  (INTERN (MKNAM))))) "
-  " (SCAR (LAMBDA (X) (IF (NULL X) X (CAR X)))) "
-  " (SCDR (LAMBDA (X) (IF (NULL X) X (CDR X)))) "
   " (SET-DIFFERENCE (LAMBDA (X Y) (COND ((NULL X) NIL) "
   "  ((MEMBER (CAR X) Y) (SET-DIFFERENCE (CDR X) Y)) "
   "  (T (CONS (CAR X) (SET-DIFFERENCE (CDR X) Y)))))) "
@@ -5304,6 +5319,11 @@
   " (IF (> (LENGTH (CADR FN)) 4) "  ;; TODO: Remove this restriction
   "  (ERROR '$$|more than 4 arguments are not supported|)) "
   " )) "
+  "(CSETQ *COMPILED-EXPRS* NIL) "
+  "(DE EVAL-ENTER-HOOK () (PROG ()"
+  " (MAP *COMPILED-EXPRS* (FUNCTION (LAMBDA (X) (REMPROP (CAR X) 'EXPR)))) "
+  " (CSETQ *COMPILED-EXPRS* NIL) "
+  "))"
   "(DE C::COMPILE1 (SYM) (PROG (FN OBJS ASM) "
   " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
   " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR|))) "
@@ -5313,31 +5333,37 @@
   " (C::ASSEMBLE ASM) "
   " (SETQ OBJS (C::GET-CONSTS ASM)) "
   " (PUTPROP SYM (LIST (LOAD-WASM) (LENGTH (CADR FN)) OBJS) 'SUBR) "
-  " (REMPROP SYM 'EXPR) "  ;; TODO: Support FEXPR
-  " ))"
+    ;; Remove EXPR later because WebAssembly modules are actually loaded
+    ;; after all functions returned.
+    ;; TODO: Support FEXPR
+  " (CSETQ *COMPILED-EXPRS* (CONS SYM *COMPILED-EXPRS*)) "
+  " )) "
   "(DE COMPILE (LST) "
   " (MAP LST (FUNCTION (LAMBDA (X) (C::COMPILE1 (CAR X))))))"
   "(MAP '( "
   " PLUS2 TIMES2 MAX2 MIN2 LOGAND2 LOGOR2 LOGXOR2 "
-;;  " C::VCTAG "
+  " C::VCTAG "
   " ) (FUNCTION (LAMBDA (X) (REMOB (CAR X))))) "
+  " (COMPILE '(NOT CAAR CADR CDAR CDDR SCAR SCDR CONSP SYMBOLP)) "
   ;; Greeting
   "(PRINT '$$|\F0\9F\8D\93 Ichigo Lisp version 0.0.1 powered by WebAssembly|) "
   "(PRINT '$$|\F0\9F\8D\93 Enjoy LISP 1.5(-ish) programming|) "
-  "NIL "  ;; END OF EXPR/FEXPR/APVAL
+  "STOP "  ;; END OF EXPR/FEXPR/APVAL
   "\00")
 
  (func $initexpr
+       (local $rd i32)
        (local $ret i32)
        (call $rdset (global.get $str_expr_defs))
        (loop $loop
           (global.set $printp (i32.const 40960))
-          (local.set $ret (call $eval (call $read) (i32.const 0)))
+          (local.set $rd (call $read))
+          (if (i32.eq (local.get $rd) (global.get $sym_stop))
+              (return))
+          (local.set $ret (call $eval (local.get $rd) (i32.const 0)))
           (call $printObj (local.get $ret))
           (call $ilogstr (i32.const 40960))
-          (br_if $loop (i32.eqz (i32.or
-                                 (i32.eq (local.get $ret) (i32.const 0))
-                                 (call $errorp (local.get $ret)))))))
+          (br_if $loop (i32.eqz (call $errorp (local.get $ret))))))
  ;;; END EXPR/FEXPR
 
  (func $fflush
@@ -5345,8 +5371,10 @@
        (global.set $printp (i32.const 40960)))
 
  (func (export "init")
+       (global.set $suppress_gc_msg (i32.const 1))
        (call $init)
-       (call $initexpr))
+       (call $initexpr)
+       (global.set $suppress_gc_msg (i32.const 0)))
 
  (func (export "setDebugLevel") (param $level i32)
        (global.set $debug_level (local.get $level)))
@@ -5354,8 +5382,10 @@
  (func (export "readAndEval")
        (local $alist i32)
        (local.set $alist (i32.const 0))
-
        (global.set $printp (i32.const 40960))
+       (call $drop (call $apply (global.get $sym_eval_enter_hook)
+                         (i32.const 0) (i32.const 0)))
+
        (call $rdset (i32.const 51200))
        (call $printObj
              (call $eval (call $read) (local.get $alist)))
@@ -5371,8 +5401,10 @@
        (local $args i32)
        (local $alist i32)
        (local.set $alist (i32.const 0))
-
        (global.set $printp (i32.const 40960))
+       (call $drop (call $apply (global.get $sym_eval_enter_hook)
+                         (i32.const 0) (i32.const 0)))
+
        (call $rdset (i32.const 51200))
        (local.set $fn (call $read))
        (call $push (local.get $fn))  ;; For GC (fn)
