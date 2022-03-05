@@ -511,4 +511,11 @@ test_data.push([
     ["(LABELFN 10)", "55"],
     ["(compile '(labelfn))", "NIL"],
     ["(LABELFN 10)", "55"],
+
+    ["(defun orfn (x y) (or (print x) (print y) (print 3)))", "ORFN"],
+    ["(orfn 1 nil)", "1"],
+    ["(orfn nil nil)", "3"],
+    ["(compile '(orfn))", "NIL"],
+    ["(orfn 1 nil)", "1"],
+    ["(orfn nil nil)", "3"],
 ]);

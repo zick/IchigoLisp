@@ -665,6 +665,7 @@
  (elem (i32.const 24) $createFunarg)  ;; ii2i
  (elem (i32.const 25) $getVarInAlist)  ;; ii2i
  (elem (i32.const 26) $createLabelFunarg)  ;; iii2i
+ (elem (i32.const 27) $apvalSet)  ;; ii2i
 
  (elem (i32.const 31) $setArgF1)  ;; ii2v
  (elem (i32.const 32) $setArgF2)  ;; ii2v
@@ -2044,6 +2045,14 @@
        (call $perr1
              (call $makeStrError (global.get $str_err_unbound))
              (local.get $var)))
+
+ (func $apvalSet (param $obj i32) (param $val i32) (result i32)
+       (call $push (local.get $obj))  ;; For GC (obj)
+       (local.set $val (call $cons (local.get $val) (i32.const 0)))
+       (call $drop (call $pop))  ;; For GC ()
+       (call $putprop
+             (local.get $obj) (local.get $val) (global.get $sym_apval))
+       (local.get $val))
 
  ;;; All arguments must be protected from GC
  (func $pairlis (param $x i32) (param $y i32) (param $z i32) (result i32)
@@ -5316,6 +5325,11 @@
   "  (LIST 'CONST SB) "
   "  (LIST 'CONST (CAR X)) "
   "  26)))) "  ;; 26: createLabelFunarg
+  "(DE C::COMPILE-CSETQ-CALL (SYM ARG X) "   ;; X of (CSETQ . X)
+  " (LIST 'CALL 'II2I "
+  "  (LIST 'CONST (CAR X)) "
+  "  (C::COMPILE-CODE SYM ARG (CADR X))"
+  "  27)) "  ;; 27: apvalSet
   "(DE C::COMPILE-SPECIAL-CALL (SYM ARG X) "
   " (COND "
   "  ((EQ (CAR X) 'IF) (C::COMPILE-IF-CALL SYM ARG (CDR X))) "
@@ -5329,10 +5343,11 @@
   "  ((EQ (CAR X) 'TIMES2) (C::COMPILE-LSUBR-CALL SYM ARG 210 (CDR X))) "
   "  ((EQ (CAR X) 'FUNCTION) (C::COMPILE-FUNCTION-CALL SYM ARG (CDR X))) "
   "  ((EQ (CAR X) 'LABEL) (C::COMPILE-LABEL-CALL SYM ARG (CDR X))) "
-  "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported|))))) "
+  "  ((EQ (CAR X) 'CSETQ) (C::COMPILE-CSETQ-CALL SYM ARG (CDR X))) "
+  "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported special fn|))))) "
   "(DE C::SPECIALFNP (X) "
   " (MEMBER X '(IF QUOTE LOGAND2 LOGOR2 LOGXOR2 MAX2 MIN2 PLUS2 TIMES2 "
-  "  FUNCTION LABEL))) "
+  "  FUNCTION LABEL CSETQ))) "
   "(DE C::CREATE-SUBR-FROM-LAMBDA (FN) (PROG (IDX-OBJ) "
   " (C::VERIFY0 'LAMBDA FN) "
   " (SETQ IDX-OBJ (C::COMPILE-LAMBDA 'LAMBDA FN)) "
@@ -5393,6 +5408,13 @@
   "  (T (LIST 'IF (LIST 'NOT (C::TRANSFORM (CAR X))) "
   "   NIL "
   "   (C::TRANSFORM-AND (CDR X)))))) "
+  "(DE C::TRANSFORM-OR (X) "  ;; X of (OR . X)
+  " (COND ((NULL X) NIL)"
+  "  ((NULL (CDR X)) (C::TRANSFORM (CAR X)))"
+  "  (T (LIST 'IF "
+  "   (LIST 'CAR (LIST 'CSETQ '*OR-RESULT* (C::TRANSFORM (CAR X))))"
+  "   '*OR-RESULT* "
+  "   (C::TRANSFORM-OR (CDR X)))))) "
   "(DE C::TRANSFORM-LIST (X) "  ;; X of (LIST . X)
   " (COND ((NULL X) NIL)"
   "  (T (LIST 'CONS (C::TRANSFORM (CAR X)) (C::TRANSFORM-LIST (CDR X)))))) "
@@ -5407,6 +5429,7 @@
   "  ((EQ (CAR EXP) 'LAMBDA) EXP) "
   "  ((EQ (CAR EXP) 'COND) (C::TRANSFORM-COND (CDR EXP))) "
   "  ((EQ (CAR EXP) 'AND) (C::TRANSFORM-AND (CDR EXP))) "
+  "  ((EQ (CAR EXP) 'OR) (C::TRANSFORM-OR (CDR EXP))) "
   "  ((EQ (CAR EXP) 'LIST) (C::TRANSFORM-LIST (CDR EXP))) "
   "  ((EQ (CAR EXP) 'LOGAND) (C::TRANSFORM-LSUBR 'LOGAND2 (CDR EXP) -1)) "
   "  ((EQ (CAR EXP) 'LOGOR) (C::TRANSFORM-LSUBR 'LOGOR2 (CDR EXP) 0)) "
@@ -5460,6 +5483,7 @@
   " )) "
   "(DE COMPILE (LST) "
   " (MAP LST (FUNCTION (LAMBDA (X) (C::COMPILE1 (CAR X))))))"
+  "(CSETQ *OR-RESULT* NIL) "
   "(MAP '( "
   " PLUS2 TIMES2 MAX2 MIN2 LOGAND2 LOGOR2 LOGXOR2 "
   " C::VCTAG "
