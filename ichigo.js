@@ -1,6 +1,6 @@
 var modules = [];
 var last_output = '';
-var memory = new WebAssembly.Memory({initial: 4});
+var memory = new WebAssembly.Memory({initial: 6});
 var importObject = {
     js: {
         memory: memory,

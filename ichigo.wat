@@ -65,8 +65,10 @@
 ;;; <MEMORY LAYOUT>
 ;;;
 ;;; The following layout will very likely change in the future.
+;;; Q. Why is the page 1 empty?
+;;; A. There used to be heap. Now we can use it for other purposes.
 ;;;
-;;; +--------------+ 0 (0x0)
+;;; +--------------+ 0 (0x0) [page 0]
 ;;; | Primitive    |
 ;;; | Lisp         |
 ;;; | objects      |
@@ -94,18 +96,22 @@
 ;;; | input        |
 ;;; | from JS      |
 ;;; |              |
-;;; +--------------+ 65536 (0x10000)
+;;; +--------------+ 65536 (0x10000) [page 1]
 ;;; |              |
-;;; | heap         |
+;;; | (empty)      |
 ;;; |              |
-;;; +--------------+ 131072 (0x20000)
+;;; +--------------+ 131072 (0x20000) [page 2]
 ;;; |              |
 ;;; | stack        |
 ;;; |              |
-;;; +--------------+ 196608 (0x30000)
+;;; +--------------+ 196608 (0x30000) [page 3]
 ;;; |              |
 ;;; | Lisp code    |
 ;;; | string       |
+;;; |              |
+;;; +--------------+ 262144 (0x40000) [page 4]
+;;; |              |
+;;; | heap         | 327680 (0x50000) [page 5]
 ;;; |              |
 
 
@@ -117,10 +123,11 @@
  (func $getTimeInMs (import "io" "getTimeInMs") (result i64))
  ;; WebAssembly page size is 64KB.
  ;; page 0: any
- ;; page 1: free list
+ ;; page 1: (empty)
  ;; page 2: stack
  ;; page 3: expr/fexpr
- (import "js" "memory" (memory 4))
+ ;; page 4-5: free list
+ (import "js" "memory" (memory 6))
  (import "js" "table" (table 512 funcref))
 
  (type $subr_type (func (result i32)))
@@ -133,13 +140,13 @@
  (global $tag_error i32 (i32.const -12))
 
  ;;; Start address of the heap (inclusive)
- (global $heap_start (mut i32) (i32.const 65536))
+ (global $heap_start (mut i32) (i32.const 262144))  ;; 64KB*4
  ;;; Points to the head of free list
- (global $fp (mut i32) (i32.const 65536))
+ (global $fp (mut i32) (i32.const 262144))
  ;;; Fill pointer of heap
  (global $fillp (mut i32) (i32.const 0))
  ;;; End address of the heap (exclusive)
- (global $heap_end (mut i32) (i32.const 131072))
+ (global $heap_end (mut i32) (i32.const 393216))  ;; 64KB*6
  ;;; Address of stack bottom (inclusive)
  (global $stack_bottom (mut i32) (i32.const 131072))
  ;;; Stack pointer
@@ -5041,7 +5048,7 @@
   " (SETQ SIDX (NEXT-SUBR)) "
   " (C::WASM-HEADER )"
   " (C::TYPE-SECTION) "
-  " (C::IMPORT-SECTION 4 512) "
+  " (C::IMPORT-SECTION 6 512) "
   " (C::FUNC-SECTION) "
   " (C::ELM-SECTION SIDX) "
   " (C::CODE-SECTION ASM) "
