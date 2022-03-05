@@ -1177,6 +1177,8 @@
 
  (func $conc (param $lst i32) (result i32)
        (local $ret i32)
+       (if (call $errorp (local.get $lst))
+           (return (local.get $lst)))
        (if (i32.eqz (local.get $lst))
            (return (i32.const 0)))
        (if (i32.eqz (call $cdr (local.get $lst)))
@@ -3476,6 +3478,9 @@
        (local.set $arg1 (call $car (local.get $args)))
        (local.set $arg2 (call $cadr (local.get $args)))
        (local.set $arg2 (call $eval (local.get $arg2) (local.get $a)))
+       (call $push (i32.const 0))  ;; Don't need to eval return value
+       (if (call $errorp (local.get $arg2))
+           (return (local.get $arg2)))
        (local.set $p (call $assoc (local.get $arg1) (local.get $a)))
        (if (i32.eqz (local.get $p))
            (then
@@ -3494,7 +3499,6 @@
                  (call $printSpace)
                  (call $printObj (local.get $arg2))
                  (call $terprif)))))
-       (call $push (i32.const 0))  ;; Don't need to eval return value
        (local.get $arg2))
 
   (func $subr_prog2 (result i32)

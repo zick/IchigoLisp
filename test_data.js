@@ -322,6 +322,7 @@ test_data.push([
     ["(max 1 'a 3)", /I3/],
     ["(conc (list 1) ub (list 3))", /A8/],
     ["(maplist '(1 2 3) '(lambda(x) ub))", /A8/],
+    ["(mapcon '(1 2 3) '(lambda(x) ub))", /A8/],
 ]);
 test_data.push([
     ["(de nilfn () nil)", "NILFN"],
