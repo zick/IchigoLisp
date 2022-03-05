@@ -494,4 +494,15 @@ test_data.push([
     ["(lambdacfn 1 2)", "((99 2) 1 2)"],
     ["(compile '(lambdacfn))", "NIL"],
     ["(lambdacfn 1 2)", "((99 2) 1 2)"],
+
+    ["(defun funcfn (x) (function (lambda (y) (+ x y))))", "FUNCFN"],
+    ["((funcfn 1) 99)", "100"],
+    ["(compile '(funcfn))", "NIL"],
+    ["((funcfn 1) 99)", "100"],
+
+    ["(defun funcfn2 (x y) (maplist y (function " +
+     "(lambda (z) (cons x (car z))))))", "FUNCFN2"],
+    ["(funcfn2 'z '(a b c))", "((Z . A) (Z . B) (Z . C))"],
+    ["(compile '(funcfn2))", "NIL"],
+    ["(funcfn2 'z '(a b c))", "((Z . A) (Z . B) (Z . C))"],
 ]);

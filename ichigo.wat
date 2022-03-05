@@ -662,6 +662,7 @@
  (elem (i32.const 21) $funcCall)  ;; ii2i
  (elem (i32.const 22) $createAlistFromStack)  ;; ii2i
  (elem (i32.const 23) $fsubrCall)  ;; i2i
+ (elem (i32.const 24) $createFunarg)  ;; ii2i
 
  (elem (i32.const 31) $setArgF1)  ;; ii2v
  (elem (i32.const 32) $setArgF2)  ;; ii2v
@@ -1244,14 +1245,20 @@
 
  (func $list2 (param $e1 i32) (param $e2 i32) (result i32)
        (local $tmp i32)
+       (call $push (local.get $e1))  ;; For GC (e1)
+       (call $push (local.get $e2))  ;; For GC (e1 e2)
        (local.set $tmp (call $cons (local.get $e2) (i32.const 0)))
        (local.set $tmp (call $cons (local.get $e1) (local.get $tmp)))
+       (call $drop (call $pop))  ;; For GC (e1)
+       (call $drop (call $pop))  ;; For GC ()
        (local.get $tmp))
 
  (func $list3 (param $e1 i32) (param $e2 i32) (param $e3 i32) (result i32)
        (local $tmp i32)
+       (call $push (local.get $e1))  ;; For GC (e1)
        (local.set $tmp (call $list2 (local.get $e2) (local.get $e3)))
        (local.set $tmp (call $cons (local.get $e1) (local.get $tmp)))
+       (call $drop (call $pop))  ;; For GC ()
        (local.get $tmp))
 
  (func $simpleSymbolp (param $obj i32) (result i32)
@@ -1977,6 +1984,9 @@
        (call $drop (call $pop))  ;; For GC (e)
        (call $drop (call $pop))  ;; For GC ()
        (local.get $ret))
+
+ (func $createFunarg (param $a i32) (param $fn i32) (result i32)
+       (call $list3 (global.get $sym_funarg) (local.get $fn) (local.get $a)))
 
  ;;; All arguments must be protected from GC
  (func $pairlis (param $x i32) (param $y i32) (param $z i32) (result i32)
@@ -5210,6 +5220,13 @@
   " (LIST 'CONST (SCAR X))) "
   "(DE C::COMPILE-LSUBR-CALL (SYM ARGS IDX X) "
   " (C::COMPILE-SUBR-CALL SYM ARGS (LIST IDX 2) X)) "
+  "(DE C::COMPILE-FUNCTION-CALL (SYM ARG X) "  ;; X of (FUNCTION . X=(fn))
+  " (LIST 'CALL 'II2I "
+     ;; Create alist (22: createAlistFromStack)
+  "  (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) "
+     ;; TODO: Compile
+  "  (LIST 'CONST (CAR X)) "
+  "  24)) "  ;; 24: createFunarg
   "(DE C::COMPILE-SPECIAL-CALL (SYM ARG X) "
   " (COND "
   "  ((EQ (CAR X) 'IF) (C::COMPILE-IF-CALL SYM ARG (CDR X))) "
@@ -5221,9 +5238,11 @@
   "  ((EQ (CAR X) 'MIN2) (C::COMPILE-LSUBR-CALL SYM ARG 208 (CDR X))) "
   "  ((EQ (CAR X) 'PLUS2) (C::COMPILE-LSUBR-CALL SYM ARG 209 (CDR X))) "
   "  ((EQ (CAR X) 'TIMES2) (C::COMPILE-LSUBR-CALL SYM ARG 210 (CDR X))) "
-  "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported|)))))"
+  "  ((EQ (CAR X) 'FUNCTION) (C::COMPILE-FUNCTION-CALL SYM ARG (CDR X))) "
+  "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported|))))) "
   "(DE C::SPECIALFNP (X) "
-  " (MEMBER X '(IF QUOTE LOGAND2 LOGOR2 LOGXOR2 MAX2 MIN2 PLUS2 TIMES2))) "
+  " (MEMBER X '(IF QUOTE LOGAND2 LOGOR2 LOGXOR2 MAX2 MIN2 PLUS2 TIMES2 "
+  "  FUNCTION))) "
   "(DE C::COMPILE-LIST-CALL (SYM ARGS FN AA) "
   " (COND "
   "  ((EQ (CAR FN) 'LAMBDA) "
@@ -5289,6 +5308,8 @@
   "(DE C::TRANSFORM (EXP) "
   " (COND "
   "  ((ATOM EXP) EXP) "
+  "  ((EQ (CAR EXP) 'QUOTE) EXP) "
+  "  ((EQ (CAR EXP) 'LAMBDA) EXP) "
   "  ((EQ (CAR EXP) 'COND) (C::TRANSFORM-COND (CDR EXP))) "
   "  ((EQ (CAR EXP) 'AND) (C::TRANSFORM-AND (CDR EXP))) "
   "  ((EQ (CAR EXP) 'LIST) (C::TRANSFORM-LIST (CDR EXP))) "
