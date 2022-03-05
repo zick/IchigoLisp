@@ -505,4 +505,10 @@ test_data.push([
     ["(funcfn2 'z '(a b c))", "((Z . A) (Z . B) (Z . C))"],
     ["(compile '(funcfn2))", "NIL"],
     ["(funcfn2 'z '(a b c))", "((Z . A) (Z . B) (Z . C))"],
+
+    ["(defun labelfn (x) ((label rec (lambda (n) " +
+     "(if (zerop n) 0 (+ n (rec (1- n)))))) x))", "LABELFN"],
+    ["(LABELFN 10)", "55"],
+    ["(compile '(labelfn))", "NIL"],
+    ["(LABELFN 10)", "55"],
 ]);

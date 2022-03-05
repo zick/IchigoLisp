@@ -663,6 +663,8 @@
  (elem (i32.const 22) $createAlistFromStack)  ;; ii2i
  (elem (i32.const 23) $fsubrCall)  ;; i2i
  (elem (i32.const 24) $createFunarg)  ;; ii2i
+ (elem (i32.const 25) $getVarInAlist)  ;; ii2i
+ (elem (i32.const 26) $createLabelFunarg)  ;; iii2i
 
  (elem (i32.const 31) $setArgF1)  ;; ii2v
  (elem (i32.const 32) $setArgF2)  ;; ii2v
@@ -1936,7 +1938,6 @@
             (local.set $narg (i32.sub (local.get $narg) (i32.const 1)))
             (br $loop)))
        (local.set $alist (call $pop))
-       ;; TODO: Support FUNARG
        (call
         $eval
         (call $car (call $cddr (local.get $fn)))
@@ -1947,7 +1948,10 @@
          (local.get $aarg)
          (local.get $alist))))
  (func $funcCall (param $fn i32) (param $narg i32) (result i32)
+       (local $a i32)
        (local $tmp i32)
+       (local $fn_lookup i32)
+       (local.set $fn_lookup (i32.const 0))
        ;; Check if it's EXPR
        (local.set $tmp (call $get (local.get $fn) (global.get $sym_expr)))
        (if (i32.ne (local.get $tmp) (i32.const 0))
@@ -1958,9 +1962,44 @@
            (return (call $subrCall
                          (call $fixnum2int (call $car (local.get $tmp)))
                          (local.get $narg))))
-       ;; Check if it's LAMBDA
-       (if (i32.eq (call $safecar (local.get $fn)) (global.get $sym_lambda))
-           (return (call $exprCall (local.get $fn) (local.get $narg))))
+       (loop $loop
+          ;; Check if it's (LAMBDA ...)
+          (if (i32.eq (call $safecar (local.get $fn)) (global.get $sym_lambda))
+              (return (call $exprCall (local.get $fn) (local.get $narg))))
+          ;; Check if it's (SUBR IDX ...)
+          (if (i32.eq (call $safecar (local.get $fn)) (global.get $sym_subr))
+              (return (call $subrCall
+                            (call $fixnum2int (call $cadr (local.get $fn)))
+                            (local.get $narg))))
+          ;; Check if it's (FUNARG ...)
+          (if (i32.eq (call $safecar (local.get $fn)) (global.get $sym_funarg))
+              (then
+               ;; Replace $a in stack.
+               (i32.store
+                (i32.sub
+                 (global.get $sp)
+                 (i32.mul (i32.add (local.get $narg) (i32.const 1))
+                          (i32.const 4)))
+                (call $car (call $cddr (local.get $fn))))
+               (local.set $fn (call $cadr (local.get $fn)))
+               (br $loop)))
+          ;; Look up $fn from alist
+          (if (i32.and (call $symbolp (local.get $fn))
+                       (i32.eqz (local.get $fn_lookup)))
+              (then
+               (local.set $fn_lookup (i32.const 1))
+               (local.set
+                $a
+                (i32.load
+                 (i32.sub
+                  (global.get $sp)
+                  (i32.mul (i32.add (local.get $narg) (i32.const 1))
+                           (i32.const 4)))))
+               (local.set $tmp (call $assoc (local.get $fn) (local.get $a)))
+               (if (i32.ne (local.get $tmp) (i32.const 0))
+                   (then
+                    (local.set $fn (call $cdr (local.get $tmp)))
+                    (br $loop))))))
        ;; Error: $fn is not a function
        ;; Remove arguments and alist from stack
        (global.set
@@ -1987,6 +2026,24 @@
 
  (func $createFunarg (param $a i32) (param $fn i32) (result i32)
        (call $list3 (global.get $sym_funarg) (local.get $fn) (local.get $a)))
+
+ (func $createLabelFunarg (param $a i32) (param $fn i32) (param $nm i32)
+       (result i32)
+       (local $tmp i32)
+       (call $push (local.get $a))  ;; For GC (a)
+       (local.set $tmp (call $cons (local.get $nm) (local.get $fn)))
+       (local.set $tmp (call $cons (local.get $tmp) (local.get $a)))
+       (call $drop (call $pop))  ;; For GC ()
+       (call $list3 (global.get $sym_funarg) (local.get $fn) (local.get $tmp)))
+
+ (func $getVarInAlist (param $var i32) (param $alist i32) (result i32)
+       (local $tmp i32)
+       (local.set $tmp (call $assoc (local.get $var) (local.get $alist)))
+       (if (i32.ne (local.get $tmp) (i32.const 0))
+           (return (call $cdr (local.get $tmp))))
+       (call $perr1
+             (call $makeStrError (global.get $str_err_unbound))
+             (local.get $var)))
 
  ;;; All arguments must be protected from GC
  (func $pairlis (param $x i32) (param $y i32) (param $z i32) (result i32)
@@ -2318,6 +2375,17 @@
                  ;; The new fn should be (LAMBDA ...)
                  (local.set $fn (call $cadr (local.get $fn)))
                  (br $applylp)))
+            ;; Check if $fn is (SUBR IDX ...)
+            (if (i32.eq (call $car (local.get $fn)) (global.get $sym_subr))
+                (then
+                 (call $argspush (local.get $args))
+                 (local.set
+                  $ret
+                  (call_indirect
+                   (type $subr_type)
+                   (call $fixnum2int (call $cadr (local.get $fn)))))
+                 (call $evpop)
+                 (br $evalbk)))
             ;; FUNCTION, LABEL, or a function that returns a function
             (call $push (local.get $args))  ;; For GC (e a args)
             (local.set $tmp (call $eval (local.get $fn) (local.get $a)))
@@ -4986,8 +5054,8 @@
   ")) "
   "(DE C::TYPE-SECTION () (PROG () "
   " (BWRITE 0x01) "  ;; section number
-  " (BWRITE 0x19) "  ;; section size
-  " (BWRITE 0x05) "  ;; 5 entry
+  " (BWRITE 0x20) "  ;; section size
+  " (BWRITE 0x06) "  ;; 6 entry
   " (BWRITE 0x60) "  ;; functype (void -> i32)
   " (BWRITE 0x00) "  ;; no arguments
   " (BWRITE 0x01) "  ;; 1 value
@@ -5012,6 +5080,13 @@
   " (BWRITE 0x7f) "  ;; i32
   " (BWRITE 0x7f) "  ;; i32
   " (BWRITE 0x00) "  ;; 0 value
+  " (BWRITE 0x60) "  ;; functype (i32*i32*i32 -> i32)
+  " (BWRITE 0x03) "  ;; 3 parameters
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x01) "  ;; 1 value
+  " (BWRITE 0x7f) "  ;; i32
   ")) "
   "(DE C::IMPORT-SECTION (MEM TBL) (PROG (MS TS SS)"
   " (SETQ MS (ULEB128 MEM)) "
@@ -5109,6 +5184,7 @@
   "  ((EQ X 'I2I) 2) "
   "  ((EQ X 'II2I) 3) "
   "  ((EQ X 'II2V) 4) "
+  "  ((EQ X 'III2I) 5) "
   "  (T (ERROR (SYMCAT X '$$| is not supported type|))))) "
   "(DE C::ASSEMBLE-CALL (X) "  ;; X of (CALL . X=(TYPE . ARGS))
   " (NCONC "
@@ -5149,12 +5225,18 @@
   " (LIST 'CALL 'I2I "
   "  (LIST 'LOAD (LIST 'CONST CELL)) "
   "  4))"  ;; 4: car
+  "(DE C::COMPILE-GET-ALIST-VAR (X) "
+  " (LIST 'CALL 'II2I "
+  "  (LIST 'CONST X) "
+  "  (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) "  ;; 10: getAArgFInSubr
+  "  25)) "  ;; 25: getVarInAlist
   "(DE C::COMPILE-ATOM (X ARGS) "
   " (COND "
   "  ((NULL X) (LIST 'CONST NIL)) "
   "  ((FIXP X) (LIST 'CONST X)) "
   "  ((GET X 'APVAL) (C::COMPILE-APVAL (PROP X 'APVAL))) "
   "  ((POSITION X ARGS) (C::COMPILE-ARG (POSITION X ARGS))) "
+  "  ((SYMBOLP X) (C::COMPILE-GET-ALIST-VAR X)) "
   "  (T (ERROR (SYMCAT X '$$| is not supported atom|))))) "
   "(DE C::COMPILE-SUBR-CALL (SYM ARGS SB AA) "
   " (CONC "
@@ -5224,9 +5306,16 @@
   " (LIST 'CALL 'II2I "
      ;; Create alist (22: createAlistFromStack)
   "  (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) "
-     ;; TODO: Compile
-  "  (LIST 'CONST (CAR X)) "
+  "  (LIST 'CONST (C::CREATE-SUBR-FROM-LAMBDA (CAR X))) "
   "  24)) "  ;; 24: createFunarg
+  "(DE C::COMPILE-LABEL-CALL (SYM ARG X) (PROG (SB) "   ;; X of (LABEL . X)
+  " (SETQ SB (C::CREATE-SUBR-FROM-LAMBDA (CADR X))) "
+  " (RETURN (LIST 'CALL 'III2I "
+     ;; Create alist (22: createAlistFromStack)
+  "  (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) "
+  "  (LIST 'CONST SB) "
+  "  (LIST 'CONST (CAR X)) "
+  "  26)))) "  ;; 26: createLabelFunarg
   "(DE C::COMPILE-SPECIAL-CALL (SYM ARG X) "
   " (COND "
   "  ((EQ (CAR X) 'IF) (C::COMPILE-IF-CALL SYM ARG (CDR X))) "
@@ -5239,14 +5328,20 @@
   "  ((EQ (CAR X) 'PLUS2) (C::COMPILE-LSUBR-CALL SYM ARG 209 (CDR X))) "
   "  ((EQ (CAR X) 'TIMES2) (C::COMPILE-LSUBR-CALL SYM ARG 210 (CDR X))) "
   "  ((EQ (CAR X) 'FUNCTION) (C::COMPILE-FUNCTION-CALL SYM ARG (CDR X))) "
+  "  ((EQ (CAR X) 'LABEL) (C::COMPILE-LABEL-CALL SYM ARG (CDR X))) "
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported|))))) "
   "(DE C::SPECIALFNP (X) "
   " (MEMBER X '(IF QUOTE LOGAND2 LOGOR2 LOGXOR2 MAX2 MIN2 PLUS2 TIMES2 "
-  "  FUNCTION))) "
+  "  FUNCTION LABEL))) "
+  "(DE C::CREATE-SUBR-FROM-LAMBDA (FN) (PROG (IDX-OBJ) "
+  " (C::VERIFY0 'LAMBDA FN) "
+  " (SETQ IDX-OBJ (C::COMPILE-LAMBDA 'LAMBDA FN)) "
+  " (RETURN (LIST 'SUBR (CAR IDX-OBJ) (LENGTH (CADR FN)) (CDR IDX-OBJ))))) "
   "(DE C::COMPILE-LIST-CALL (SYM ARGS FN AA) "
   " (COND "
   "  ((EQ (CAR FN) 'LAMBDA) "
-  "   (C::COMPILE-FUNC-CALL-WITH-ALIST SYM ARGS (LIST 'CONST FN) AA "
+  "   (C::COMPILE-FUNC-CALL-WITH-ALIST SYM ARGS "
+  "    (LIST 'CONST (C::CREATE-SUBR-FROM-LAMBDA FN)) AA "
        ;; Push alist (22: createAlistFromStack)
   "    (LIST 'CALL 'I2V "
   "     (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) 1))) "
@@ -5345,15 +5440,19 @@
   " (MAP *COMPILED-EXPRS* (FUNCTION (LAMBDA (X) (REMPROP (CAR X) 'EXPR)))) "
   " (CSETQ *COMPILED-EXPRS* NIL) "
   "))"
-  "(DE C::COMPILE1 (SYM) (PROG (FN OBJS ASM) "
-  " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
-  " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR|))) "
+  ;;; Returns (SUBR-index . OBJ-list).
+  "(DE C::COMPILE-LAMBDA (SYM FN) (PROG (OBJS ASM) "
   " (C::VERIFY0 SYM FN) "
-  " (SETQ FN (C::TRANSFORM FN)) "
+  " (SETQ FN (LIST (CAR FN) (CADR FN) (C::TRANSFORM (CAR (CDDR FN))))) "
   " (SETQ ASM (C::COMPILE-FUNC SYM (CADR FN) (CAR (CDDR FN)))) "
   " (C::ASSEMBLE ASM) "
   " (SETQ OBJS (C::GET-CONSTS ASM)) "
-  " (PUTPROP SYM (LIST (LOAD-WASM) (LENGTH (CADR FN)) OBJS) 'SUBR) "
+  " (RETURN (CONS (LOAD-WASM) OBJS))))"
+  "(DE C::COMPILE1 (SYM) (PROG (FN IDX-OBJ) "
+  " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
+  " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR|))) "
+  " (SETQ IDX-OBJ (C::COMPILE-LAMBDA SYM FN)) "
+  " (PUTPROP SYM (LIST (CAR IDX-OBJ) (LENGTH (CADR FN)) (CDR IDX-OBJ)) 'SUBR) "
     ;; Remove EXPR later because WebAssembly modules are actually loaded
     ;; after all functions returned.
     ;; TODO: Support FEXPR
