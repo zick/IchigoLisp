@@ -438,6 +438,8 @@
  (global $str_fencode i32 (i32.const 3320))
  (data (i32.const 3330) "TIME\00")  ;; 5
  (global $str_time i32 (i32.const 3330))
+ (data (i32.const 3340) "C::VCTAG\00")  ;; 9
+ (global $str_vctag i32 (i32.const 3340))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -577,7 +579,8 @@
  (global $sym_nextsubr i32 (i32.const 0x0430))
  (global $sym_fencode i32 (i32.const 0x0438))
  (global $sym_time i32 (i32.const 0x0440))
- (global $primitive_obj_end i32 (i32.const 0x0448))
+ (global $sym_vctag i32 (i32.const 0x0448))
+ (global $primitive_obj_end i32 (i32.const 0x0450))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -634,6 +637,7 @@
  (elem (i32.const 3) $drop)  ;; i2v
  (elem (i32.const 4) $car)  ;; i2i
  (elem (i32.const 5) $cdr)  ;; i2i
+ (elem (i32.const 6) $cons)  ;; ii2i
 
  (elem (i32.const 10) $getAArgFInSubr)  ;; i2i
  (elem (i32.const 11) $getArgF1)  ;; i2i
@@ -645,6 +649,11 @@
  (elem (i32.const 21) $funcCall)  ;; ii2i
  (elem (i32.const 22) $createAlistFromStack)  ;; ii2i
  (elem (i32.const 23) $fsubrCall)  ;; i2i
+
+ (elem (i32.const 31) $setArgF1)  ;; ii2v
+ (elem (i32.const 32) $setArgF2)  ;; ii2v
+ (elem (i32.const 33) $setArgF3)  ;; ii2v
+ (elem (i32.const 34) $setArgF4)  ;; ii2v
 
  (func $getsp (result i32)
        (global.get $sp))
@@ -1716,9 +1725,6 @@
 
  (func $removeFromOblist (param $sym i32) (result i32)
        (local $p i32)
-       (if (i32.lt_u (local.get $sym) (global.get $primitive_obj_end))
-           ;; TODO: Return the specific error
-           (return (call $makeStrError (global.get $str_err_generic))))
        (if (i32.eq (call $car (global.get $oblist)) (local.get $sym))
            (then
             (global.set $oblist (call $cdr (global.get $oblist)))
@@ -1851,7 +1857,7 @@
        (call $push (local.get $farg))  ;; For GC (aarg farg)
        (local.set
         $ret
-        (call $pairlis (local.get $farg) (local.get $aarg)
+        (call $pairlisWithVC (local.get $farg) (local.get $aarg)
               (call $getAArgFInSubr (local.get $fmp))))
        (call $drop (call $pop))  ;; For GC (aarg)
        (call $drop (call $pop))  ;; For GC ()
@@ -1957,7 +1963,7 @@
        (call $drop (call $pop))  ;; For GC ()
        (local.get $ret))
 
- ;; All arguments must be protected from GC
+ ;;; All arguments must be protected from GC
  (func $pairlis (param $x i32) (param $y i32) (param $z i32) (result i32)
        (local $tmp i32)
        (block $block
@@ -1967,6 +1973,31 @@
             (local.set $tmp (call $cons
                                   (call $car (local.get $x))
                                   (call $safecar (local.get $y))))
+            (call $drop (call $pop))  ;; For GC ()
+            (local.set $z (call $cons (local.get $tmp) (local.get $z)))
+            (local.set $x (call $cdr (local.get $x)))
+            (local.set $y (call $safecdr (local.get $y)))
+            (br $loop)))
+       (local.get $z))
+
+ ;;; All arguments must be protected from GC
+ ;;; This function should be called from compiled functions.
+ ;;; This function must not called from compiler itself because the code using
+ ;;; `c::vctag` will be broken.
+ (func $pairlisWithVC (param $x i32) (param $y i32) (param $z i32) (result i32)
+       (local $tmp i32)
+       (block $block
+         (loop $loop
+            (br_if $block (i32.eqz (call $consp (local.get $x))))
+            (call $push (local.get $z))  ;; For GC (z)
+            (if (i32.and
+                 (call $consp (call $safecar (local.get $y)))
+                 (i32.eq (call $safecar (call $safecar (local.get $y)))
+                         (global.get $sym_vctag)))
+                (local.set $tmp (call $cdar (local.get $y)))
+                (local.set $tmp (call $cons
+                                      (call $car (local.get $x))
+                                      (call $safecar (local.get $y)))))
             (call $drop (call $pop))  ;; For GC ()
             (local.set $z (call $cons (local.get $tmp) (local.get $z)))
             (local.set $x (call $cdr (local.get $x)))
@@ -2550,6 +2581,7 @@
        (call $initsym0 (global.get $sym_eof) (global.get $str_eof))
        (call $initsym0 (global.get $sym_eor) (global.get $str_eor))
        (call $initsym0 (global.get $sym_traceset) (global.get $str_traceset))
+       (call $initsym0 (global.get $sym_vctag) (global.get $str_vctag))
 
        (call $initsym1
              (global.get $sym_nil) (global.get $str_nil) (i32.const 0))
@@ -2891,6 +2923,18 @@
       (i32.load (i32.sub (global.get $sp) (i32.const 8))))
  (func $getAArg (result i32)
       (i32.load (i32.sub (global.get $sp) (i32.const 4))))
+
+ (func $setArgF1 (param $fmp i32) (param $val i32)
+      (i32.store (i32.sub (local.get $fmp) (i32.const 16)) (local.get $val)))
+ (func $setArgF2 (param $fmp i32) (param $val i32)
+      (i32.store (i32.sub (local.get $fmp) (i32.const 12)) (local.get $val)))
+ (func $setArgF3 (param $fmp i32) (param $val i32)
+      (i32.store (i32.sub (local.get $fmp) (i32.const 8)) (local.get $val)))
+ (func $setArgF4 (param $fmp i32) (param $val i32)
+       (local $cell i32)
+       (local.set $cell (call $getArgFRest (local.get $fmp)))
+       (if (i32.ne (local.get $cell) (i32.const 0))
+           (call $setcar (local.get $cell) (local.get $val))))
 
  (elem (i32.const 100) $subr_car)
  (global $idx_car i32 (i32.const 100))
@@ -4906,8 +4950,8 @@
   ")) "
   "(DE C::TYPE-SECTION () (PROG () "
   " (BWRITE 0x01) "  ;; section number
-  " (BWRITE 0x14) "  ;; section size
-  " (BWRITE 0x04) "  ;; 4 entry
+  " (BWRITE 0x19) "  ;; section size
+  " (BWRITE 0x05) "  ;; 5 entry
   " (BWRITE 0x60) "  ;; functype (void -> i32)
   " (BWRITE 0x00) "  ;; no arguments
   " (BWRITE 0x01) "  ;; 1 value
@@ -4927,6 +4971,11 @@
   " (BWRITE 0x7f) "  ;; i32
   " (BWRITE 0x01) "  ;; 1 value
   " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x60) "  ;; functype (i32*i32 -> void)
+  " (BWRITE 0x02) "  ;; 2 parameters
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x00) "  ;; 0 value
   ")) "
   "(DE C::IMPORT-SECTION (MEM TBL) (PROG (MS TS SS)"
   " (SETQ MS (ULEB128 MEM)) "
@@ -5023,6 +5072,7 @@
   "  ((EQ X 'I2V) 1) "
   "  ((EQ X 'I2I) 2) "
   "  ((EQ X 'II2I) 3) "
+  "  ((EQ X 'II2V) 4) "
   "  (T (ERROR (SYMCAT X '$$| is not supported type|))))) "
   "(DE C::ASSEMBLE-CALL (X) "  ;; X of (CALL . X=(TYPE . ARGS))
   " (NCONC "
@@ -5080,23 +5130,27 @@
   "   (FUNCTION (LAMBDA (Y) "
   "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
   "  (LIST (LIST 'CALL 'II2I (CAR SB) (LENGTH AA) 20)))) "  ;; 20: subrCall
-  ;;; FN should be an instruction
-  "(DE C::COMPILE-FUNC-CALL (SYM ARGS FN AA) "
+  ;;; FN and ALST must be an instruction
+  "(DE C::COMPILE-FUNC-CALL-WITH-ALIST (SYM ARGS FN AA ALST) "
   " (CONC "
-  "  (LIST 'PROGN) "
-     ;; Push alist (10: getAArgFInSubr)
-  "  (LIST (LIST 'CALL 'I2V (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) 1)) "
+  "  (LIST 'PROGN ALST) "
      ;; Push arguments
   "  (MAPLIST AA "
   "   (FUNCTION (LAMBDA (Y) "
   "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
+     ;; Call FN
   "  (LIST (LIST 'CALL 'II2I FN (LENGTH AA) 21)))) "  ;; 21: funcCall
+  ;;; FN must be an instruction
+  "(DE C::COMPILE-FUNC-CALL (SYM ARGS FN AA) "
+  " (C::COMPILE-FUNC-CALL-WITH-ALIST SYM ARGS FN AA"
+     ;; Push the alist (10: getAArgFInSubr)
+  "  (LIST 'CALL 'I2V (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) 1))) "
   "(DE C::COMPILE-FSUBR-CALL (SYM ARGS FS E) "
   " (CONC "
   "  (LIST 'PROGN) "
      ;; Push expression
   "  (LIST (LIST 'CALL 'I2V (LIST 'CONST E) 1)) "
-     ;; Push alist
+     ;; Push alist (22: createAlistFromStack)
   "  (LIST (LIST 'CALL 'I2V "
   "   (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) 1)) "
      ;; Push arguments
@@ -5147,7 +5201,10 @@
   "(DE C::COMPILE-LIST-CALL (SYM ARGS FN AA) "
   " (COND "
   "  ((EQ (CAR FN) 'LAMBDA) "
-  "   (C::COMPILE-FUNC-CALL SYM ARGS (LIST 'CONST FN) AA)) "
+  "   (C::COMPILE-FUNC-CALL-WITH-ALIST SYM ARGS (LIST 'CONST FN) AA "
+       ;; Push alist (22: createAlistFromStack)
+  "    (LIST 'CALL 'I2V "
+  "     (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) 1))) "
   "  (T (C::COMPILE-FUNC-CALL SYM ARGS (C::COMPILE-CODE SYM ARGS FN) AA)))) "
   "(DE C::COMPILE-COMP (SYM ARGS X) "
   " (COND "
@@ -5158,6 +5215,32 @@
   " (COND "
   "  ((ATOM X) (C::COMPILE-ATOM X ARGS)) "
   "  (T (C::COMPILE-COMP SYM ARGS X)))) "
+  "(DE C::INIT-CV-STACK1 (V N) "
+  " (LIST 'CALL 'II2V "
+  "  (LIST 'GET-LOCAL 0) "
+  "  (LIST 'CALL 'II2I (LIST 'CONST 'C::VCTAG) "
+  "   (LIST 'CALL 'II2I (LIST 'CONST V) (C::COMPILE-ARG N) 6) 6) "  ;; 6: cons
+  "  (+ 31 N))) "  ;; 31: setArgF1
+  "(DE C::INIT-CV-STACK (ARGS CV) "
+  " (MAPLIST CV (FUNCTION (LAMBDA (Y) "
+  "  (C::INIT-CV-STACK1 (CAR Y) (POSITION (CAR Y) ARGS)))))) "
+  "(DE C::REPLACE-CV-REF (ARGS EXP CV) "
+  " (COND "
+  "  ((ATOM EXP) (IF (MEMBER EXP CV) (LIST 'CDDR EXP) EXP)) "
+     ;; TODO: Support SETQ, PROGN
+  "  ((EQ (CAR EXP) 'QUOTE) EXP) "
+  "  ((EQ (CAR EXP) 'LAMBDA) EXP) "
+  "  ((GET (CAR EXP) 'FSUBR) EXP) "
+  "  ((GET (CAR EXP) 'FEXPR) EXP) "
+  "  (T (CONS (C::REPLACE-CV-REF ARGS (CAR EXP) CV) "
+  "           (C::REPLACE-CV-REF ARGS (CDR EXP) CV))))) "
+  "(DE C::COMPILE-FUNC (SYM ARGS EXP) (PROG (CV) "
+  " (SETQ CV (C::CAPTURED-VARS ARGS EXP)) "
+  " (RETURN (IF CV"
+  "  (CONC (LIST 'PROGN) "
+  "   (C::INIT-CV-STACK ARGS CV) "
+  "   (LIST (C::COMPILE-CODE SYM ARGS (C::REPLACE-CV-REF ARGS EXP CV)))) "
+  "  (C::COMPILE-CODE SYM ARGS EXP))))) "
   "(DE C::TRANSFORM-COND (X) "  ;; X of (COND . X)
   " (IF (NULL X) "
   "  NIL"
@@ -5214,10 +5297,8 @@
   " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
   " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR|))) "
   " (C::VERIFY0 SYM FN) "
-  " (IF (C::CAPTURED-VARS (CADR FN) (CAR (CDDR FN))) "  ;; TODO: Remove
-  "  (ERROR '$$|LAMBDA cannot capture outer variables so far|)) "
   " (SETQ FN (C::TRANSFORM FN)) "
-  " (SETQ ASM (C::COMPILE-CODE SYM (CADR FN) (CAR (CDDR FN)))) "
+  " (SETQ ASM (C::COMPILE-FUNC SYM (CADR FN) (CAR (CDDR FN)))) "
   " (C::ASSEMBLE ASM) "
   " (SETQ OBJS (C::GET-CONSTS ASM)) "
   " (PUTPROP SYM (LIST (LOAD-WASM) (LENGTH (CADR FN)) OBJS) 'SUBR) "
@@ -5225,6 +5306,10 @@
   " ))"
   "(DE COMPILE (LST) "
   " (MAP LST (FUNCTION (LAMBDA (X) (C::COMPILE1 (CAR X))))))"
+  "(MAP '( "
+  " PLUS2 TIMES2 MAX2 MIN2 LOGAND2 LOGOR2 LOGXOR2 "
+;;  " C::VCTAG "
+  " ) (FUNCTION (LAMBDA (X) (REMOB (CAR X))))) "
   ;; Greeting
   "(PRINT '$$|\F0\9F\8D\93 Ichigo Lisp version 0.0.1 powered by WebAssembly|) "
   "(PRINT '$$|\F0\9F\8D\93 Enjoy LISP 1.5(-ish) programming|) "

@@ -486,4 +486,10 @@ test_data.push([
     ["(listfn)", "(1 5 4)"],
     ["(compile '(listfn))", "NIL"],
     ["(listfn)", "(1 5 4)"],
+
+    ["(defun lambdacfn (x y) (list ((lambda(x) (list x y)) 99) x y))",
+     "LAMBDACFN"],
+    ["(lambdacfn 1 2)", "((99 2) 1 2)"],
+    ["(compile '(lambdacfn))", "NIL"],
+    ["(lambdacfn 1 2)", "((99 2) 1 2)"],
 ]);
