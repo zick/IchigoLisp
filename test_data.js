@@ -549,4 +549,22 @@ test_data.push([
     ["(compile '(selectfn))", "NIL"],
     ["(selectfn 2)", "B"],
     ["(selectfn 99)", "D"],
+
+    ["(defun progfn() (prog () (list 1) (return 2) (list 3)))", "PROGFN"],
+    ["(progfn)", "2"],
+    ["(compile '(progfn))", "NIL"],
+    ["(progfn)", "2"],
+
+    ["(defun gofn() (prog () (go l3) l1 (return 1) l2 (return 2) l3 (go l1)))",
+     "GOFN"],
+    ["(gofn)", "1"],
+    ["(compile '(gofn))", "NIL"],
+    ["(gofn)", "1"],
+
+    ["(defun loopfn (n) (prog (i acc) (setq i 1) (setq acc 0) " +
+     "l1 (if (> i n) (return acc)) " +
+     "(setq acc (+ acc i)) (setq i (+ i 1)) (go l1))))", "LOOPFN"],
+    ["(loopfn 10)", "55"],
+    ["(compile '(loopfn))", "NIL"],
+    ["(loopfn 10)", "55"],
 ]);

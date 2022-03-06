@@ -5146,7 +5146,7 @@
   " (BWRITE 0x00) "  ;; function index 0 (see function section)
   ")) "
   "(DE C::CODE-SECTION (ASM) (PROG (INST LEN CS SS) "
-  " (SETQ INST (C::ASSEMBLE-CODE ASM)) "
+  " (SETQ INST (C::ASSEMBLE-CODE ASM 0)) "
   " (SETQ LEN (LENGTH INST)) "
   " (SETQ CS (ULEB128 (+ 0x0b (LENGTH INST)))) "
   " (SETQ SS (ULEB128 (+ 0x0c (LENGTH INST) (LENGTH CS)))) "
@@ -5178,38 +5178,38 @@
   " (C::ELM-SECTION SIDX) "
   " (C::CODE-SECTION ASM) "
   ")) "
-  "(DE C::ASSEMBLE-CODE (X) "
+  "(DE C::ASSEMBLE-CODE (X L) "
   " (COND "
-  "  ((ATOM X) (C::ASSEMBLE-ATOM X)) "
-  "  ((EQ (CAR X) 'CONST) (C::ASSEMBLE-CONST (CADR X))) "
-  "  ((EQ (CAR X) 'GET-LOCAL) (C::ASSEMBLE-GET-LOCAL (CADR X))) "
-  "  ((EQ (CAR X) 'SET-LOCAL) (C::ASSEMBLE-SET-LOCAL (CDR X))) "
-  "  ((EQ (CAR X) 'CALL) (C::ASSEMBLE-CALL (CDR X))) "
-  "  ((EQ (CAR X) 'LOAD) (C::ASSEMBLE-LOAD (CDR X))) "
-  "  ((EQ (CAR X) 'PROGN) (C::ASSEMBLE-PROGN (CDR X))) "
-  "  ((EQ (CAR X) 'IF) (C::ASSEMBLE-IF (CDR X))) "
-  "  ((EQ (CAR X) 'WHEN) (C::ASSEMBLE-WHEN (CDR X))) "
-  "  ((EQ (CAR X) 'LOOP) (C::ASSEMBLE-LOOP (CDR X))) "
-  "  ((EQ (CAR X) '<) (C::ASSEMBLE-LESS (CDR X))) "
-  "  ((EQ (CAR X) 'RETURN) (C::ASSEMBLE-RETURN (CADR X))) "
-  "  ((EQ (CAR X) 'BR) (C::ASSEMBLE-BR (CADR X))) "
+  "  ((ATOM X) (C::ASSEMBLE-ATOM X L)) "
+  "  ((EQ (CAR X) 'CONST) (C::ASSEMBLE-CONST (CADR X) L)) "
+  "  ((EQ (CAR X) 'GET-LOCAL) (C::ASSEMBLE-GET-LOCAL (CADR X) L)) "
+  "  ((EQ (CAR X) 'SET-LOCAL) (C::ASSEMBLE-SET-LOCAL (CDR X) L)) "
+  "  ((EQ (CAR X) 'CALL) (C::ASSEMBLE-CALL (CDR X) L)) "
+  "  ((EQ (CAR X) 'LOAD) (C::ASSEMBLE-LOAD (CDR X) L)) "
+  "  ((EQ (CAR X) 'PROGN) (C::ASSEMBLE-PROGN (CDR X) L)) "
+  "  ((EQ (CAR X) 'IF) (C::ASSEMBLE-IF (CDR X) L)) "
+  "  ((EQ (CAR X) 'WHEN) (C::ASSEMBLE-WHEN (CDR X) L)) "
+  "  ((EQ (CAR X) 'LOOP) (C::ASSEMBLE-LOOP (CDR X) L)) "
+  "  ((EQ (CAR X) '<) (C::ASSEMBLE-LESS (CDR X) L)) "
+  "  ((EQ (CAR X) 'RETURN) (C::ASSEMBLE-RETURN (CADR X) L)) "
+  "  ((EQ (CAR X) 'BR) (C::ASSEMBLE-BR (CDR X) L)) "
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not asm opcode|))))) "
-  "(DE C::ASSEMBLE-ATOM (X) "
+  "(DE C::ASSEMBLE-ATOM (X L) "
   " (COND "
   "  ((FIXP X) (CONS 0x41 (LEB128 X))) "
   "  (T (ERROR (SYMCAT X '$$| is not supported asm instruction|))))) "
   "(DE C::ENCODE-FIXNUM (X) "
   " (+ (LEFTSHIFT X 2) 2)) "
-  "(DE C::ASSEMBLE-CONST (X) "  ;; X of (CONST X)
+  "(DE C::ASSEMBLE-CONST (X L) "  ;; X of (CONST X)
   " (COND "
   "  ((NULL X) (LIST 0x41 0x00)) "
   "  ((FIXP X) (CONS 0x41 (LEB128 (C::ENCODE-FIXNUM X)))) "
   "  ((OR (SYMBOLP X) (CONSP X)) (CONS 0x41 (LEB128 (FENCODE X)))) "
   "  (T (ERROR (SYMCAT X '$$| is not supported const|))))) "
-  "(DE C::ASSEMBLE-GET-LOCAL (X) "  ;; X of (GET-LOCAL X)
+  "(DE C::ASSEMBLE-GET-LOCAL (X L) "  ;; X of (GET-LOCAL X)
   " (CONS 0x20 (LEB128 X))) "
-  "(DE C::ASSEMBLE-SET-LOCAL (X) "  ;; X of (SET-LOCAL X=(idx val))
-  " (NCONC (C::ASSEMBLE-CODE (CADR X)) (CONS 0x21 (LEB128 (CAR X))))) "
+  "(DE C::ASSEMBLE-SET-LOCAL (X L) "  ;; X of (SET-LOCAL X=(idx val))
+  " (NCONC (C::ASSEMBLE-CODE (CADR X) L) (CONS 0x21 (LEB128 (CAR X))))) "
   "(DE C::ASSEMBLE-TYPE (X) "
   " (COND "
   "  ((EQ X 'V2I) 0) "
@@ -5219,43 +5219,43 @@
   "  ((EQ X 'II2V) 4) "
   "  ((EQ X 'III2I) 5) "
   "  (T (ERROR (SYMCAT X '$$| is not supported type|))))) "
-  "(DE C::ASSEMBLE-CALL (X) "  ;; X of (CALL . X=(TYPE . ARGS))
+  "(DE C::ASSEMBLE-CALL (X L) "  ;; X of (CALL . X=(TYPE . ARGS))
   " (NCONC "
      ;; Push arguments
   "  (MAPCON (CDR X) (FUNCTION (LAMBDA (Y) "
-  "   (C::ASSEMBLE-CODE (CAR Y))))) "
+  "   (C::ASSEMBLE-CODE (CAR Y) L)))) "
      ;; Call the function.
   "  (LIST 0x11 (C::ASSEMBLE-TYPE (CAR X)) 0x00))) "  ;; call_indirect
-  "(DE C::ASSEMBLE-LOAD (X) "  ;; X of (LOAD . X=(CELL))
+  "(DE C::ASSEMBLE-LOAD (X L) "  ;; X of (LOAD . X=(CELL))
   " (NCONC "
      ;; Push the address
   "  (MAPCON X (FUNCTION (LAMBDA (Y) "
-  "   (C::ASSEMBLE-CODE (CAR Y))))) "
+  "   (C::ASSEMBLE-CODE (CAR Y) L)))) "
      ;; Load
   "  (LIST 0x28 0x02 0x00))) "  ;; align=2 (I'm not sure if it's necessary)
-  "(DE C::ASSEMBLE-PROGN (X) "  ;; X of (PROGN . X)
+  "(DE C::ASSEMBLE-PROGN (X L) "  ;; X of (PROGN . X)
   " (MAPCON X (FUNCTION (LAMBDA (Y) "
-  "   (C::ASSEMBLE-CODE (CAR Y)))))) "
-  "(DE C::ASSEMBLE-IF (X) "  ;; X of (IF . X)
+  "   (C::ASSEMBLE-CODE (CAR Y) L))))) "
+  "(DE C::ASSEMBLE-IF (X L) "  ;; X of (IF . X)
   " (CONC "
-  "  (C::ASSEMBLE-CODE (CAR X)) "
+  "  (C::ASSEMBLE-CODE (CAR X) L) "
   "  (LIST 0x04 0x7f) "  ;; if with i32
-  "  (C::ASSEMBLE-CODE (CADR X)) "
+  "  (C::ASSEMBLE-CODE (CADR X) (1+ L)) "
   "  (LIST 0x05) "  ;; else
-  "  (C::ASSEMBLE-CODE (CAR (CDDR X))) "
+  "  (C::ASSEMBLE-CODE (CAR (CDDR X)) (1+ L)) "
   "  (LIST 0x0b))) "
-  "(DE C::ASSEMBLE-WHEN (X) "  ;; X of (WHEN . X)
+  "(DE C::ASSEMBLE-WHEN (X L) "  ;; X of (WHEN . X)
   " (CONC "
-  "  (C::ASSEMBLE-CODE (CAR X)) "
+  "  (C::ASSEMBLE-CODE (CAR X)) L "
   "  (LIST 0x04 0x40) "  ;; if without value
-  "  (C::ASSEMBLE-CODE (CADR X)) "
+  "  (C::ASSEMBLE-CODE (CADR X) (1+ L)) "
   "  (LIST 0x0b))) "
-  "(DE C::ASSEMBLE-LOOP (X) "  ;; X of (LOOP . X)
+  "(DE C::ASSEMBLE-LOOP (X L) "  ;; X of (LOOP . X)
   " (CONC "
   "  (LIST 0x03 0x40) "  ;; loop without value
-  "  (C::ASSEMBLE-CODE (CAR X)) "
+  "  (C::ASSEMBLE-CODE (CAR X) (1+ L)) "
   "  (LIST 0x0b))) "
-  "(DE C::GET-CONSTS (ASM) "
+  "(DE C::GET-CONSTS (ASM L) "
   " (REMOVE-DUPLICATES ((LABEL REC (LAMBDA (AS) "
   "   (COND "
   "    ((ATOM AS) NIL) "
@@ -5263,20 +5263,20 @@
   "     (LIST (CADR AS))) "
   "    (T (MAPCON (CDR AS) (FUNCTION (LAMBDA (Y) (REC (CAR Y))))))))) "
   "  ASM))) "
-  "(DE C::ASSEMBLE-LESS (X) "  ;; X of (< . X=(a b))
+  "(DE C::ASSEMBLE-LESS (X L) "  ;; X of (< . X=(a b))
   " (CONC "
-  "  (C::ASSEMBLE-CODE (CAR X)) "
-  "  (C::ASSEMBLE-CODE (CADR X)) "
+  "  (C::ASSEMBLE-CODE (CAR X) L) "
+  "  (C::ASSEMBLE-CODE (CADR X) L) "
   "  (LIST 0x48))) "  ;; i32.lt_s
-  "(DE C::ASSEMBLE-RETURN (X) "  ;; X of (RETURN X)
+  "(DE C::ASSEMBLE-RETURN (X L) "  ;; X of (RETURN X)
   " (CONC "
-  "  (C::ASSEMBLE-CODE X) "
+  "  (C::ASSEMBLE-CODE X L) "
   "  (LIST 0x0f))) "  ;; return
-  "(DE C::ASSEMBLE-BR (X) "  ;; X of (BR X)
-  "  (CONS 0x0c (LEB128 X))) "  ;; br
-  "(DE C::COMPILE-ARG (N) "
+  "(DE C::ASSEMBLE-BR (X L) "  ;; X of (BR . X=NIL)
+  "  (CONS 0x0c (LEB128 (1- L)))) "  ;; br
+  "(DE C::COMPILE-ARG (N L) "
   " (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) (+ 11 N))) " ;; 11: getArgF1
-  "(DE C::COMPILE-APVAL (CELL) "
+  "(DE C::COMPILE-APVAL (CELL L) "
   " (LIST 'CALL 'I2I "
   "  (LIST 'LOAD (LIST 'CONST CELL)) "
   "  4))"  ;; 4: car
@@ -5427,7 +5427,7 @@
   "  (ERROR '$$|GO cannot be used outside PROG|) "
   "  (LIST 'PROGN "
   "   (LIST 'SET-LOCAL 1 (1+ (POSITION (CAR X) (CADR FI)))) "
-  "   (LIST 'BR 1)))) "
+  "   (LIST 'BR)))) "
   "(DE C::COMPILE-SPECIAL-CALL (SYM ARG X) "
   " (COND "
   "  ((EQ (CAR X) 'IF) (C::COMPILE-IF-CALL SYM ARG (CDR X))) "
@@ -5585,6 +5585,8 @@
   "  ((EQ (CAR EXP) 'TIMES) (C::TRANSFORM-LSUBR 'TIMES2 (CDR EXP) 1)) "
   "  ((EQ (CAR EXP) '*) (C::TRANSFORM-LSUBR 'TIMES2 (CDR EXP) 1)) "
   "  ((EQ (CAR EXP) 'CONC) (C::TRANSFORM-LSUBR 'NCONC (CDR EXP) NIL)) "
+  "  ((EQ (CAR EXP) 'SETQ) "
+  "   (LIST 'SETQ (CADR EXP) (C::TRANSFORM (CAR (CDDR EXP))))) "
   "  ((OR (GET (CAR EXP) 'FSUBR) (GET (CAR EXP) 'FEXPR)) EXP) "
   "  (T (MAPLIST EXP (FUNCTION (LAMBDA (Y) (C::TRANSFORM (CAR Y)))))))) "
   "(DE C::CAPTURED-VARS (ARGS EXP) "
