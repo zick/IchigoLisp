@@ -5191,6 +5191,8 @@
   "  ((EQ (CAR X) 'WHEN) (C::ASSEMBLE-WHEN (CDR X))) "
   "  ((EQ (CAR X) 'LOOP) (C::ASSEMBLE-LOOP (CDR X))) "
   "  ((EQ (CAR X) '<) (C::ASSEMBLE-LESS (CDR X))) "
+  "  ((EQ (CAR X) 'RETURN) (C::ASSEMBLE-RETURN (CADR X))) "
+  "  ((EQ (CAR X) 'BR) (C::ASSEMBLE-BR (CADR X))) "
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not asm opcode|))))) "
   "(DE C::ASSEMBLE-ATOM (X) "
   " (COND "
@@ -5266,6 +5268,12 @@
   "  (C::ASSEMBLE-CODE (CAR X)) "
   "  (C::ASSEMBLE-CODE (CADR X)) "
   "  (LIST 0x48))) "  ;; i32.lt_s
+  "(DE C::ASSEMBLE-RETURN (X) "  ;; X of (RETURN X)
+  " (CONC "
+  "  (C::ASSEMBLE-CODE X) "
+  "  (LIST 0x0f))) "  ;; return
+  "(DE C::ASSEMBLE-BR (X) "  ;; X of (BR X)
+  "  (CONS 0x0c (LEB128 X))) "  ;; br
   "(DE C::COMPILE-ARG (N) "
   " (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) (+ 11 N))) " ;; 11: getArgF1
   "(DE C::COMPILE-APVAL (CELL) "
@@ -5410,6 +5418,16 @@
        ;; Push alist (22: createAlistFromStack)
   "    (LIST 'CALL 'I2V "
   "     (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) 1))) "
+  "(DE C::COMPILE-RETURN-CALL (FI ARG X) "   ;; X of (RETURN . X)
+  " (IF (OR (ATOM FI) (NOT (EQ (CAR FI) 'PROG))) "
+  "  (ERROR '$$|RETURN cannot be used outside PROG|) "
+  "  (LIST 'RETURN (C::COMPILE-CODE FI ARG (CAR X))))) "
+  "(DE C::COMPILE-GO-CALL (FI ARG X) "   ;; X of (GO . X=(label))
+  " (IF (OR (ATOM FI) (NOT (EQ (CAR FI) 'PROG))) "
+  "  (ERROR '$$|GO cannot be used outside PROG|) "
+  "  (LIST 'PROGN "
+  "   (LIST 'SET-LOCAL 1 (1+ (POSITION (CAR X) (CADR FI)))) "
+  "   (LIST 'BR 1)))) "
   "(DE C::COMPILE-SPECIAL-CALL (SYM ARG X) "
   " (COND "
   "  ((EQ (CAR X) 'IF) (C::COMPILE-IF-CALL SYM ARG (CDR X))) "
@@ -5426,6 +5444,8 @@
   "  ((EQ (CAR X) 'CSETQ) (C::COMPILE-CSETQ-CALL SYM ARG (CDR X))) "
   "  ((EQ (CAR X) 'SETQ) (C::COMPILE-SETQ-CALL SYM ARG (CDR X))) "
   "  ((EQ (CAR X) 'PROG) (C::COMPILE-PROG-CALL SYM ARG X)) "  ;; Use whole X
+  "  ((EQ (CAR X) 'RETURN) (C::COMPILE-RETURN-CALL SYM ARG (CDR X))) "
+  "  ((EQ (CAR X) 'GO) (C::COMPILE-GO-CALL SYM ARG (CDR X))) "
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported special fn|))))) "
   "(DE C::SPECIALFNP (X) "
   " (MEMBER X '(IF QUOTE LOGAND2 LOGOR2 LOGXOR2 MAX2 MIN2 PLUS2 TIMES2 "
@@ -5485,23 +5505,40 @@
   "   (C::INIT-CV-STACK ARGS CV) "
   "   (LIST (C::COMPILE-CODE SYM ARGS (C::REPLACE-CV-REF ARGS EXP CV)))) "
   "  (C::COMPILE-CODE SYM ARGS EXP))))) "
+  "(DE C::COMPILE-PROG-CODE (FI ARGS EXP) (PROG (ASM) "
+  " (IF (ATOM EXP) (RETURN (LIST 'PROG))) "  ;; Return nop for a label
+  " (SETQ ASM (C::COMPILE-CODE FI ARGS EXP)) "
+  " (IF (AND (CONSP EXP) (MEMBER (CAR EXP) '(RETURN GO))) "
+  "  (RETURN ASM) "
+     ;; TODO: error check
+  "  (RETURN (LIST 'CALL 'I2V ASM 3))))) "  ;; 3: drop
   "(DE C::COMPILE-PROG-FRAGMENT (FI ARGS FRGM N) "
   " (LIST 'WHEN (LIST '< (LIST 'GET-LOCAL 1) N) "
-  "  (CONS 'PROGN (MAPLIST FRGM (FUNCTION (LAMBDA (E) "  ;; TODO: error check
-  "   (LIST 'CALL 'I2V (C::COMPILE-CODE FI ARGS (CAR E)) 3))))))) "  ;; 3: drop
+  "  (CONS 'PROGN (MAPLIST FRGM (FUNCTION (LAMBDA (E) "
+  "   (C::COMPILE-PROG-CODE FI ARGS (CAR E)))))))) "
+  "(DE C::GET-PROG-FRAGMENT-AFTER (LBL BODY) "
+  " (IF (NULL LBL) "
+  "  (IF (OR (NULL BODY) (ATOM (CAR BODY)))"
+  "   NIL"
+  "   (CONS (CAR BODY) (C::GET-PROG-FRAGMENT-AFTER LBL (CDR BODY)))) "
+  "  (COND "
+  "   ((NULL BODY) (ERROR (SYMCAT '$$|Label not found: | LBL))) "
+  "   ((EQ (CAR BODY) LBL) (C::GET-PROG-FRAGMENT-AFTER NIL (CDR BODY))) "
+  "   (T (C::GET-PROG-FRAGMENT-AFTER LBL (CDR BODY)))))) "
   "(DE C::COMPILE-PROG-BODY (FI ARGS BODY) (PROG (N CV ST FRAGMENTS) "
     ;; Replace captured variables
   " (SETQ CV (C::CAPTURED-VARS ARGS BODY)) "
   " (SETQ BODY (C::REPLACE-CV-REF ARGS BODY CV)) "
   " (SETQ ST (IF CV (C::INIT-CV-STACK ARGS CV) NIL)) "
     ;; Create fragments
-  " (SETQ FRAGMENTS (LIST BODY))"  ;; TODO: split body by label
+  " (SETQ FRAGMENTS (MAPLIST (CONS NIL (CADR FI)) (FUNCTION (LAMBDA (X) "
+  "  (C::GET-PROG-FRAGMENT-AFTER (CAR X) BODY))))) "
   " (SETQ N 0) "
   " (RETURN (LIST 'PROGN "
   "  (CONS 'PROGN ST) "  ;; initialize stack if necessary
   "  (LIST 'SET-LOCAL 1 0) "  ;; $idx = 0
-  "  (LIST 'LOOP (MAPCON FRAGMENTS (FUNCTION (LAMBDA (FR) "
-  "   (C::COMPILE-PROG-FRAGMENT FI ARGS (CAR FR) (SETQ N (+ N 1))))))) "
+  "  (LIST 'LOOP (CONS 'PROGN (MAPLIST FRAGMENTS (FUNCTION (LAMBDA (FR) "
+  "   (C::COMPILE-PROG-FRAGMENT FI ARGS (CAR FR) (SETQ N (+ N 1)))))))) "
   "  (LIST 'CONST NIL))))) "
   "(DE C::TRANSFORM-COND (X) "  ;; X of (COND . X)
   " (IF (NULL X) "
@@ -5582,7 +5619,7 @@
   "(DE C::COMPILE-PROG (EXP) (PROG (BODY LS OBJS ASM) "  ;; EXP = (PROG ...)
   " (SETQ BODY (C::TRANSFORM (CDDR EXP))) "
   " (SETQ LS (C::GET-LABELS BODY)) "
-  " (SETQ ASM (C::COMPILE-PROG-BODY (CONS 'PROG LS) (CADR EXP) BODY)) "
+  " (SETQ ASM (C::COMPILE-PROG-BODY (LIST 'PROG LS) (CADR EXP) BODY)) "
   " (C::ASSEMBLE ASM) "
   " (SETQ OBJS (C::GET-CONSTS ASM)) "
   " (RETURN (CONS (LOAD-WASM) OBJS)))) "
