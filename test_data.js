@@ -536,4 +536,10 @@ test_data.push([
     ["(cdr (hsetqfn 99))", "(100 100)"],
     ["(compile '(hsetqfn)))", "NIL"],
     ["(cdr (hsetqfn 99))", "(100 100)"],
+
+    ["(defun concfn () (conc (list (cons 1 2)) (list 3) (list (list 4 5))))",
+     "CONCFN"],
+    ["(concfn)", "((1 . 2) 3 (4 5))"],
+    ["(compile '(concfn))", "NIL"],
+    ["(concfn)", "((1 . 2) 3 (4 5))"],
 ]);
