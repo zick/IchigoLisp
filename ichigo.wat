@@ -651,6 +651,7 @@
  (elem (i32.const 4) $car)  ;; i2i
  (elem (i32.const 5) $cdr)  ;; i2i
  (elem (i32.const 6) $cons)  ;; ii2i
+ (elem (i32.const 7) $peek)  ;; v2i
 
  (elem (i32.const 10) $getAArgFInSubr)  ;; i2i
  (elem (i32.const 11) $getArgF1)  ;; i2i
@@ -666,6 +667,7 @@
  (elem (i32.const 25) $getVarInAlist)  ;; ii2i
  (elem (i32.const 26) $createLabelFunarg)  ;; iii2i
  (elem (i32.const 27) $apvalSet)  ;; ii2i
+ (elem (i32.const 28) $setVarInAlist)  ;; ii2i
 
  (elem (i32.const 31) $setArgF1)  ;; ii2v
  (elem (i32.const 32) $setArgF2)  ;; ii2v
@@ -681,6 +683,8 @@
       (global.set $sp (i32.sub (global.get $sp) (i32.const 4)))
       (i32.load (global.get $sp)))
  (func $drop (param i32))
+ (func $peek (result i32)
+      (i32.load (i32.sub (global.get $sp) (i32.const 4))))
 
  (func $int2fixnum (param $n i32) (result i32)
        (i32.add (i32.shl (local.get $n) (i32.const 2)) (i32.const 2)))
@@ -2042,6 +2046,18 @@
        (local.set $tmp (call $assoc (local.get $var) (local.get $alist)))
        (if (i32.ne (local.get $tmp) (i32.const 0))
            (return (call $cdr (local.get $tmp))))
+       (call $perr1
+             (call $makeStrError (global.get $str_err_unbound))
+             (local.get $var)))
+
+ (func $setVarInAlist (param $var i32) (param $val i32) (param $alist i32)
+       (result i32)
+       (local $tmp i32)
+       (local.set $tmp (call $assoc (local.get $var) (local.get $alist)))
+       (if (i32.ne (local.get $tmp) (i32.const 0))
+           (then
+            (call $setcdr (local.get $tmp) (local.get $val))
+            (return (local.get $val))))
        (call $perr1
              (call $makeStrError (global.get $str_err_unbound))
              (local.get $var)))
@@ -5330,6 +5346,26 @@
   "  (LIST 'CONST (CAR X)) "
   "  (C::COMPILE-CODE SYM ARG (CADR X))"
   "  27)) "  ;; 27: apvalSet
+  "(DE C::COMPILE-SETQ-CALL (SYM ARG X) (PROG (N)  "   ;; X of (SETQ . X)
+  " (SETQ N (POSITION (CAR X) ARGS))"
+  " (RETURN (COND "
+  "  ((NOT N) "
+      ;; Set var in alist
+  "   (LIST 'CALL 'III2I "
+  "    (LIST 'CONST (CAR X)) "
+  "    (C::COMPILE-CODE SYM ARG (CADR X))"
+  "    (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) "  ;; 10: getAArgFInSubr
+  "    28)) "  ;; 28: setVarInAlist
+     ;; Set var in stack
+  "  ((< N 5)"
+  "   (LIST 'PROGN "
+  "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARG (CADR X)) 1) "  ;; 1: push
+  "    (LIST 'CALL 'II2V "
+  "     (LIST 'GET-LOCAL 0) "
+  "     (LIST 'CALL 'V2I 7) "  ;; 7: peek (val)
+  "     (+ 31 N)) "  ;; ;; 31: setArgF1
+  "    (LIST 'CALL 'V2I 2))) "  ;; 2: pop (val)
+  "  (T (ERROR '$$|5+ args are not supported in SETQ|)))))) "
   "(DE C::COMPILE-SPECIAL-CALL (SYM ARG X) "
   " (COND "
   "  ((EQ (CAR X) 'IF) (C::COMPILE-IF-CALL SYM ARG (CDR X))) "
@@ -5344,10 +5380,11 @@
   "  ((EQ (CAR X) 'FUNCTION) (C::COMPILE-FUNCTION-CALL SYM ARG (CDR X))) "
   "  ((EQ (CAR X) 'LABEL) (C::COMPILE-LABEL-CALL SYM ARG (CDR X))) "
   "  ((EQ (CAR X) 'CSETQ) (C::COMPILE-CSETQ-CALL SYM ARG (CDR X))) "
+  "  ((EQ (CAR X) 'SETQ) (C::COMPILE-SETQ-CALL SYM ARG (CDR X))) "
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported special fn|))))) "
   "(DE C::SPECIALFNP (X) "
   " (MEMBER X '(IF QUOTE LOGAND2 LOGOR2 LOGXOR2 MAX2 MIN2 PLUS2 TIMES2 "
-  "  FUNCTION LABEL CSETQ))) "
+  "  FUNCTION LABEL CSETQ SETQ))) "
   "(DE C::CREATE-SUBR-FROM-LAMBDA (FN) (PROG (IDX-OBJ) "
   " (C::VERIFY0 'LAMBDA FN) "
   " (SETQ IDX-OBJ (C::COMPILE-LAMBDA 'LAMBDA FN)) "
@@ -5382,7 +5419,13 @@
   "(DE C::REPLACE-CV-REF (ARGS EXP CV) "
   " (COND "
   "  ((ATOM EXP) (IF (MEMBER EXP CV) (LIST 'CDDR EXP) EXP)) "
-     ;; TODO: Support SETQ, PROGN
+     ;; TODO: Support PROGN
+  "  ((EQ (CAR EXP) 'SETQ) "
+  "   (IF (MEMBER (CADR EXP) CV) "
+  "    (LIST 'RPLACD (LIST 'CDR (CADR EXP)) "
+  "     (C::REPLACE-CV-REF ARGS (CAR (CDDR EXP)) CV)) "
+  "    (LIST 'SETQ (CADR EXP) "
+  "     (C::REPLACE-CV-REF ARGS (CAR (CDDR EXP)) CV)))) "
   "  ((EQ (CAR EXP) 'QUOTE) EXP) "
   "  ((EQ (CAR EXP) 'LAMBDA) EXP) "
   "  ((GET (CAR EXP) 'FSUBR) EXP) "
@@ -5492,6 +5535,7 @@
   ;; Greeting
   "(PRINT '$$|\F0\9F\8D\93 Ichigo Lisp version 0.0.1 powered by WebAssembly|) "
   "(PRINT '$$|\F0\9F\8D\93 Enjoy LISP 1.5(-ish) programming|) "
+  "(RECLAIM)"
   "STOP "  ;; END OF EXPR/FEXPR/APVAL
   "\00")
 

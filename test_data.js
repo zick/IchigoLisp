@@ -518,4 +518,22 @@ test_data.push([
     ["(compile '(orfn))", "NIL"],
     ["(orfn 1 nil)", "1"],
     ["(orfn nil nil)", "3"],
+
+    ["(defun setqfn (x) (list (setq x (1+ x)) (setq x (1+ x)) x))", "SETQFN"],
+    ["(setqfn 1)", "(2 3 3)"],
+    ["(compile '(setqfn)))", "NIL"],
+    ["(setqfn 1)", "(2 3 3)"],
+
+    ["(defun gen (n) (function (lambda (m) (setq n (+ n m)))))", "GEN"],
+    ["(prog (x) (setq x (gen 100)) (return (list (x 10) (x 90) (x 300))))",
+     "(110 200 500)"],
+    ["(compile '(gen))", "NIL"],
+    ["(prog (x) (setq x (gen 100)) (return (list (x 10) (x 90) (x 300))))",
+     "(110 200 500)"],
+
+    ["(defun hsetqfn (x) (list (function (lambda()x)) (setq x (+ x 1)) x))",
+     "HSETQFN"],
+    ["(cdr (hsetqfn 99))", "(100 100)"],
+    ["(compile '(hsetqfn)))", "NIL"],
+    ["(cdr (hsetqfn 99))", "(100 100)"],
 ]);
