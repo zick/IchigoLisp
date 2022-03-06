@@ -1038,6 +1038,24 @@
        (call $terprif)
        (local.get $err))
 
+ (func $perr2 (param $err i32) (param $obj1 i32) (param $obj2 i32) (result i32)
+       (if (global.get $suppress_error)
+           (return (local.get $err)))
+       (if (i32.eq (call $cdr (local.get $err))
+                   (call $int2fixnum (global.get $str_err_error)))
+           (then
+            (call $printErrorPrefix))
+           (else
+            (call $printErrorMsg (local.get $err))
+            (call $printChar (i32.const 32))  ;; ' '
+            (call $printChar (i32.const 45))  ;; '-'
+            (call $printChar (i32.const 32))))  ;; ' '
+       (call $printObj (local.get $obj1))
+       (call $printChar (i32.const 32))  ;; ' '
+       (call $printObj (local.get $obj2))
+       (call $terprif)
+       (local.get $err))
+
  ;;; Output a string representation of a fixnum to `printp`.
  ;;; `printp` should point to '\00'.
  (func $printFixnum (param $n i32)
@@ -3399,7 +3417,9 @@
                                           (local.get $acc))))
                 (else
                  (local.set
-                  $ret (call $makeStrError (global.get $str_err_num)))
+                  $ret (call $perr1
+                             (call $makeStrError (global.get $str_err_num))
+                             (global.get $sym_plus)))
                  (br $block)))
             (local.set $args (call $cdr (local.get $args)))
             (br $loop)))
@@ -3432,7 +3452,9 @@
                                           (local.get $acc))))
                 (else
                  (local.set
-                  $ret (call $makeStrError (global.get $str_err_num)))
+                  $ret (call $perr1
+                             (call $makeStrError (global.get $str_err_num))
+                             (global.get $sym_times)))
                  (br $block)))
             (local.set $args (call $cdr (local.get $args)))
             (br $loop)))
@@ -3574,7 +3596,9 @@
        (local.set $p (call $assoc (local.get $arg1) (local.get $a)))
        (if (i32.eqz (local.get $p))
            ;; TODO: Return the specific error
-           (return (call $makeStrError (global.get $str_err_generic))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_generic))
+                         (global.get $sym_set))))
        (if (i32.eq (local.get $a) (global.get $traceset_env))
            (then
             (call $printComment)
@@ -3606,7 +3630,9 @@
             ;;; Replace the return value
             ;; TODO: Return the specific error
             (local.set
-             $arg2 (call $makeStrError (global.get $str_err_generic))))
+             $arg2 (call $perr1
+                         (call $makeStrError (global.get $str_err_generic))
+                         (global.get $sym_setq))))
            (else
             (call $setcdr (local.get $p) (local.get $arg2))
             (if (i32.eq (local.get $a) (global.get $traceset_env))
@@ -3627,7 +3653,9 @@
        (local $arg1 i32)
        (local.set $arg1 (call $getArg1))
        (if (i32.eqz (call $fixnump (local.get $arg1)))
-           (return (call $makeStrError (global.get $str_err_num))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
        (call $int2fixnum (i32.mul (call $fixnum2int (local.get $arg1))
                                   (i32.const -1))))
  (func $subr_difference (result i32)
@@ -3637,7 +3665,9 @@
        (local.set $arg2 (call $getArg2))
        (if (i32.or (i32.eqz (call $fixnump (local.get $arg1)))
                    (i32.eqz (call $fixnump (local.get $arg2))))
-           (return (call $makeStrError (global.get $str_err_num))))
+           (return (call $perr2
+                         (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1) (local.get $arg2))))
        (call $int2fixnum (i32.sub (call $fixnum2int (local.get $arg1))
                                   (call $fixnum2int (local.get $arg2)))))
  (func $subr_divide (result i32)
@@ -3647,7 +3677,9 @@
        (local.set $arg2 (call $getArg2))
        (if (i32.or (i32.eqz (call $fixnump (local.get $arg1)))
                    (i32.eqz (call $fixnump (local.get $arg2))))
-           (return (call $makeStrError (global.get $str_err_num))))
+           (return (call $perr2
+                         (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1) (local.get $arg2))))
        (call
         $list2
         (call $int2fixnum (i32.div_s (call $fixnum2int (local.get $arg1))
@@ -3661,7 +3693,9 @@
        (local.set $arg2 (call $getArg2))
        (if (i32.or (i32.eqz (call $fixnump (local.get $arg1)))
                    (i32.eqz (call $fixnump (local.get $arg2))))
-           (return (call $makeStrError (global.get $str_err_num))))
+           (return (call $perr2
+                         (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1) (local.get $arg2))))
        (call $int2fixnum (i32.div_s (call $fixnum2int (local.get $arg1))
                                     (call $fixnum2int (local.get $arg2)))))
  (func $subr_remainder (result i32)
@@ -3671,7 +3705,9 @@
        (local.set $arg2 (call $getArg2))
        (if (i32.or (i32.eqz (call $fixnump (local.get $arg1)))
                    (i32.eqz (call $fixnump (local.get $arg2))))
-           (return (call $makeStrError (global.get $str_err_num))))
+           (return (call $perr2
+                         (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1) (local.get $arg2))))
        (call $int2fixnum (i32.rem_s (call $fixnum2int (local.get $arg1))
                                     (call $fixnum2int (local.get $arg2)))))
 
@@ -3679,14 +3715,18 @@
        (local $arg1 i32)
        (local.set $arg1 (call $getArg1))
        (if (i32.eqz (call $fixnump (local.get $arg1)))
-           (return (call $makeStrError (global.get $str_err_num))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
        (call $int2fixnum (i32.add (call $fixnum2int (local.get $arg1))
                                   (i32.const 1))))
  (func $subr_sub1 (result i32)
        (local $arg1 i32)
        (local.set $arg1 (call $getArg1))
        (if (i32.eqz (call $fixnump (local.get $arg1)))
-           (return (call $makeStrError (global.get $str_err_num))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
        (call $int2fixnum (i32.sub (call $fixnum2int (local.get $arg1))
                                   (i32.const 1))))
 
@@ -3697,7 +3737,9 @@
        (local.set $arg2 (call $getArg2))
        (if (i32.or (i32.eqz (call $fixnump (local.get $arg1)))
                    (i32.eqz (call $fixnump (local.get $arg2))))
-           (return (call $makeStrError (global.get $str_err_num))))
+           (return (call $perr2
+                         (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1) (local.get $arg2))))
        (if (i32.lt_s (call $fixnum2int (local.get $arg1))
                      (call $fixnum2int (local.get $arg2)))
            (return (global.get $sym_tstar)))
@@ -3709,7 +3751,9 @@
        (local.set $arg2 (call $getArg2))
        (if (i32.or (i32.eqz (call $fixnump (local.get $arg1)))
                    (i32.eqz (call $fixnump (local.get $arg2))))
-           (return (call $makeStrError (global.get $str_err_num))))
+           (return (call $perr2
+                         (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1) (local.get $arg2))))
        (if (i32.gt_s (call $fixnum2int (local.get $arg1))
                      (call $fixnum2int (local.get $arg2)))
            (return (global.get $sym_tstar)))
@@ -3719,7 +3763,9 @@
        (local $arg1 i32)
        (local.set $arg1 (call $getArg1))
        (if (i32.eqz (call $fixnump (local.get $arg1)))
-           (return (call $makeStrError (global.get $str_err_num))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
        (if (i32.eqz (call $fixnum2int (local.get $arg1)))
            (return (global.get $sym_tstar)))
        (i32.const 0))
@@ -3727,7 +3773,9 @@
        (local $arg1 i32)
        (local.set $arg1 (call $getArg1))
        (if (i32.eqz (call $fixnump (local.get $arg1)))
-           (return (call $makeStrError (global.get $str_err_num))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
        (if (i32.eq (call $fixnum2int (local.get $arg1))
                                  (i32.const 1))
            (return (global.get $sym_tstar)))
@@ -3736,7 +3784,9 @@
        (local $arg1 i32)
        (local.set $arg1 (call $getArg1))
        (if (i32.eqz (call $fixnump (local.get $arg1)))
-           (return (call $makeStrError (global.get $str_err_num))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_num))
+                         (local.get $arg1))))
        (if (i32.lt_s (call $fixnum2int (local.get $arg1))
                                    (i32.const 0))
            (return (global.get $sym_tstar)))
@@ -3821,7 +3871,10 @@
        (local.set $arg1 (call $getArg1))
        (local.set $arg2 (call $getArg2))
        (if (i32.eqz (call $dwcellp (local.get $arg1)))
-           (return (call $makeStrError (global.get $str_err_generic))))
+           (return (call $perr2
+                         (call $makeStrError (global.get $str_err_generic))
+                         (global.get $sym_rplaca)
+                         (local.get $arg1))))
        (call $setcar (local.get $arg1) (local.get $arg2))
        (local.get $arg2))
  (func $subr_rplacd (result i32)
@@ -3830,7 +3883,10 @@
        (local.set $arg1 (call $getArg1))
        (local.set $arg2 (call $getArg2))
        (if (i32.eqz (call $dwcellp (local.get $arg1)))
-           (return (call $makeStrError (global.get $str_err_generic))))
+           (return (call $perr2
+                         (call $makeStrError (global.get $str_err_generic))
+                         (global.get $sym_rplacd)
+                         (local.get $arg1))))
        (call $setcdr (local.get $arg1) (local.get $arg2))
        (local.get $arg2))
 
@@ -3946,7 +4002,9 @@
           (if (call $errorp (local.get $val))
               (return (local.get $val)))
           (if (i32.eqz (call $fixnump (local.get $val)))
-              (return (call $makeStrError (global.get $str_err_num))))
+              (return (call $perr1
+                            (call $makeStrError (global.get $str_err_num))
+                            (local.get $val))))
           (local.set
            $acc (i32.and (call $fixnum2int (local.get $val))
                          (local.get $acc)))
@@ -3970,7 +4028,9 @@
           (if (call $errorp (local.get $val))
               (return (local.get $val)))
           (if (i32.eqz (call $fixnump (local.get $val)))
-              (return (call $makeStrError (global.get $str_err_num))))
+              (return (call $perr1
+                            (call $makeStrError (global.get $str_err_num))
+                            (local.get $val))))
           (local.set
            $acc (i32.or (call $fixnum2int (local.get $val))
                         (local.get $acc)))
@@ -3994,7 +4054,9 @@
           (if (call $errorp (local.get $val))
               (return (local.get $val)))
           (if (i32.eqz (call $fixnump (local.get $val)))
-              (return (call $makeStrError (global.get $str_err_num))))
+              (return (call $perr1
+                            (call $makeStrError (global.get $str_err_num))
+                            (local.get $val))))
           (local.set
            $acc (i32.xor (call $fixnum2int (local.get $val))
                          (local.get $acc)))
@@ -4055,7 +4117,9 @@
        (call $push (i32.const 0))  ;; Don't need to eval return value
        (if (i32.eqz (local.get $args))
            ;; TODO: Return the specific error
-           (return (call $makeStrError (global.get $str_err_generic))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_generic))
+                         (global.get $sym_max))))
        (loop $loop
           (if (i32.eqz (local.get $args))
               (return (call $int2fixnum (local.get $acc))))
@@ -4064,7 +4128,9 @@
           (if (call $errorp (local.get $val))
               (return (local.get $val)))
           (if (i32.eqz (call $fixnump (local.get $val)))
-              (return (call $makeStrError (global.get $str_err_num))))
+              (return (call $perr1
+                            (call $makeStrError (global.get $str_err_num))
+                            (local.get $val))))
           (local.set $val (call $fixnum2int (local.get $val)))
           (if (i32.gt_s (local.get $val) (local.get $acc))
               (local.set $acc (local.get $val)))
@@ -4082,7 +4148,9 @@
        (call $push (i32.const 0))  ;; Don't need to eval return value
        (if (i32.eqz (local.get $args))
            ;; TODO: Return the specific error
-           (return (call $makeStrError (global.get $str_err_generic))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_generic))
+                         (global.get $sym_min))))
        (loop $loop
           (if (i32.eqz (local.get $args))
               (return (call $int2fixnum (local.get $acc))))
@@ -4091,7 +4159,9 @@
           (if (call $errorp (local.get $val))
               (return (local.get $val)))
           (if (i32.eqz (call $fixnump (local.get $val)))
-              (return (call $makeStrError (global.get $str_err_num))))
+              (return (call $perr1
+                            (call $makeStrError (global.get $str_err_num))
+                            (local.get $val))))
           (local.set $val (call $fixnum2int (local.get $val)))
           (if (i32.lt_s (local.get $val) (local.get $acc))
               (local.set $acc (local.get $val)))
@@ -4167,7 +4237,10 @@
               $tmp (call $get (local.get $arg1) (global.get $sym_pname)))
              (if (i32.eqz (local.get $tmp))
                  ;; TODO: Return the specific error
-                 (return (call $makeStrError (global.get $str_err_generic))))
+                 (return (call
+                          $perr1
+                          (call $makeStrError (global.get $str_err_generic))
+                          (local.get $arg1))))
              ;; Get the first character.
              (local.set $tmp (call $car (local.get $tmp)))
              (local.set
@@ -4253,7 +4326,9 @@
          $pn (call $get (local.get $arg1) (global.get $sym_pname)))
         (if (i32.eqz (local.get $pn))
             ;; TODO: Return the specific error
-            (return (call $makeStrError (global.get $str_err_generic))))
+            (return (call $perr1
+                          (call $makeStrError (global.get $str_err_generic))
+                          (local.get $arg1))))
         (local.set $ret (i32.const 0))
         (block $block
           (loop $loop
@@ -4274,7 +4349,9 @@
         $tmp (call $get (local.get $arg1) (global.get $sym_pname)))
        (if (i32.eqz (local.get $tmp))
            ;; TODO: Return the specific error
-           (return (call $makeStrError (global.get $str_err_generic))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_generic))
+                         (local.get $arg1))))
        (local.set $tmp (call $car (local.get $tmp)))
        (if (i32.or
             (i32.and
@@ -4297,7 +4374,9 @@
         $tmp (call $get (local.get $arg1) (global.get $sym_pname)))
        (if (i32.eqz (local.get $tmp))
            ;; TODO: Return the specific error
-           (return (call $makeStrError (global.get $str_err_generic))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_generic))
+                         (local.get $arg1))))
        (local.set $tmp (call $car (local.get $tmp)))
        (if (i32.and
              (i32.le_u (i32.const 0x00003002)  ;; '0' + fixnum tag
@@ -4314,7 +4393,9 @@
         $tmp (call $get (local.get $arg1) (global.get $sym_pname)))
        (if (i32.eqz (local.get $tmp))
            ;; TODO: Return the specific error
-           (return (call $makeStrError (global.get $str_err_generic))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_generic))
+                         (local.get $arg1))))
        (local.set $tmp (call $car (local.get $tmp)))
        (if (i32.eq (local.get $tmp) (i32.const 0x00002b02))  ;; '+'
            (return (global.get $sym_tstar)))
@@ -4335,7 +4416,9 @@
         $tmp (call $get (local.get $arg1) (global.get $sym_pname)))
        (if (i32.eqz (local.get $tmp))
            ;; TODO: Return the specific error
-           (return (call $makeStrError (global.get $str_err_generic))))
+           (return (call $perr1
+                         (call $makeStrError (global.get $str_err_generic))
+                         (local.get $arg1))))
        (local.set $tmp (call $car (local.get $tmp)))
        (if (i32.eq (local.get $tmp) (i32.const 0x00002d02))  ;; '-'
            (return (global.get $sym_tstar)))
@@ -4671,7 +4754,9 @@
          (local $arg1 i32)
          (local.set $arg1 (call $getArg1))
          (if (i32.eqz (call $fixnump (local.get $arg1)))
-             (return (call $makeStrError (global.get $str_err_num))))
+             (return (call $perr1
+                           (call $makeStrError (global.get $str_err_num))
+                           (local.get $arg1))))
          (call $int2fixnum (i32.const 0)))
 
    (func $subr_expt (result i32)
@@ -4683,9 +4768,13 @@
          (local.set $arg1 (call $getArg1))
          (local.set $arg2 (call $getArg2))
          (if (i32.eqz (call $fixnump (local.get $arg1)))
-             (return (call $makeStrError (global.get $str_err_num))))
+             (return (call $perr1
+                           (call $makeStrError (global.get $str_err_num))
+                           (local.get $arg1))))
          (if (i32.eqz (call $fixnump (local.get $arg2)))
-             (return (call $makeStrError (global.get $str_err_num))))
+             (return (call $perr1
+                           (call $makeStrError (global.get $str_err_num))
+                           (local.get $arg2))))
          (local.set $x (call $fixnum2int (local.get $arg1)))
          (local.set $n (call $fixnum2int (local.get $arg2)))
          (local.set $acc (i32.const 1))
@@ -4713,9 +4802,13 @@
          (local.set $arg1 (call $getArg1))
          (local.set $arg2 (call $getArg2))
          (if (i32.eqz (call $fixnump (local.get $arg1)))
-             (return (call $makeStrError (global.get $str_err_num))))
+             (return (call $perr1
+                           (call $makeStrError (global.get $str_err_num))
+                           (local.get $arg1))))
          (if (i32.eqz (call $fixnump (local.get $arg2)))
-             (return (call $makeStrError (global.get $str_err_num))))
+             (return (call $perr1
+                           (call $makeStrError (global.get $str_err_num))
+                           (local.get $arg2))))
          (local.set $arg1 (call $fixnum2int (local.get $arg1)))
          (local.set $arg2 (call $fixnum2int (local.get $arg2)))
          (if (i32.lt_s (local.get $arg2) (i32.const 0))
@@ -4828,7 +4921,9 @@
               (global.set $cons_counting (i32.const 1))  ;; Resume counting
               (return (i32.const 0))))
          (if (i32.eqz (call $fixnump (local.get $arg1)))
-             (return (call $makeStrError (global.get $str_err_num))))
+             (return (call $perr1
+                           (call $makeStrError (global.get $str_err_num))
+                           (local.get $arg1))))
          (global.set $cons_counting (i32.const 1))
          (global.set $cons_limit (call $fixnum2int (local.get $arg1)))
          (global.set $cons_count (i32.const 0))
@@ -4915,7 +5010,9 @@
          (local.set $arg1 (call $getArg1))
          (if (i32.ge_u (local.get $arg1) (i32.const 0xc0000000))
              ;; TODO: Return the specific error
-             (return (call $makeStrError (global.get $str_err_generic))))
+             (return (call $perr1
+                           (call $makeStrError (global.get $str_err_generic))
+                           (local.get $arg1))))
          (call $int2fixnum (local.get $arg1)))
 
  (func $fsubr_time (result i32)
