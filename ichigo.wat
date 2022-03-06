@@ -5296,21 +5296,34 @@
      ;; Push alist (22: createAlistFromStack)
   "  (LIST (LIST 'CALL 'I2V "
   "   (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) 1)) "
-     ;; Push arguments
   "  (LIST (LIST 'CALL 'I2I FS 23)))) "  ;; 23: fsubrCall
-  "(DE C::COMPILE-SYM-CALL (SYM ARGS X) (PROG (SB FS EX) "
+  "(DE C::COMPILE-FEXPR-CALL (SYM ARGS FE E) "
+  " (CONC "
+  "  (LIST 'PROGN) "
+     ;; Push dummy unused alist
+  "  (LIST (LIST 'CALL 'I2V (LIST 'CONST NIL) 1)) "
+     ;; Push arguments
+  "  (LIST (LIST 'CALL 'I2V (LIST 'CONST (CDR E)) 1)) "
+     ;; Push actual alist (22: createAlistFromStack)
+  "  (LIST (LIST 'CALL 'I2V "
+  "   (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) 1)) "
+  "  (LIST (LIST 'CALL 'II2I (LIST 'CONST FE) 2 21)))) "  ;; 21: funcCall
+  "(DE C::COMPILE-SYM-CALL (SYM ARGS X) (PROG (SB FS EX FE) "
   " (SETQ SB (GET (CAR X) 'SUBR)) "
   " (SETQ FS (GET (CAR X) 'FSUBR)) "
   " (SETQ EX (GET (CAR X) 'EXPR)) "
+  " (SETQ FE (GET (CAR X) 'FEXPR)) "
     ;; TODO: Support FEXPR
   " (RETURN (COND "
+  "  (FE "
+  "   (C::COMPILE-FEXPR-CALL SYM ARGS FE X)) "
   "  (FS "
   "   (C::COMPILE-FSUBR-CALL SYM ARGS FS X)) "
      ;; Primitive SUBRs
   "  ((AND SB (< (CAR SB) 300)) "  ;; <300 means primitive SUBRs
   "   (C::COMPILE-SUBR-CALL SYM ARGS SB (CDR X))) "
      ;; Prefer global function
-  "  ((OR SB FS EX) "
+  "  ((OR SB EX) "
   "   (C::COMPILE-FUNC-CALL SYM ARGS (LIST 'CONST (CAR X)) (CDR X))) "
      ;; Call local function if exists
   "  ((MEMBER (CAR X) ARGS) "

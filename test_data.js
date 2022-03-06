@@ -542,4 +542,11 @@ test_data.push([
     ["(concfn)", "((1 . 2) 3 (4 5))"],
     ["(compile '(concfn))", "NIL"],
     ["(concfn)", "((1 . 2) 3 (4 5))"],
+
+    ["(defun selectfn (x) (select x (1 'a) (2 'b) (3 'c) 'd))", "SELECTFN"],
+    ["(selectfn 2)", "B"],
+    ["(selectfn 99)", "D"],
+    ["(compile '(selectfn))", "NIL"],
+    ["(selectfn 2)", "B"],
+    ["(selectfn 99)", "D"],
 ]);
