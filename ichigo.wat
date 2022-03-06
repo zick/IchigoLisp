@@ -5154,8 +5154,8 @@
   " (BWRITES SS) "  ;; section size
   " (BWRITE 0x01) "  ;; 1 entry
   " (BWRITES CS) "  ;; code size
-  " (BWRITE 0x01) "  ;; 1 local variable ($frame)
-  " (BWRITE 0x01) "  ;; 1 local variable with the same type ($frame)
+  " (BWRITE 0x01) "  ;; 1 local variable sets
+  " (BWRITE 0x02) "  ;; 2 local variables with the same type ($frame, $idx)
   " (BWRITE 0x7f) "  ;; i32
   ;; Init frame pointer
   " (BWRITE 0x41) "  ;; i32.const
@@ -5183,10 +5183,14 @@
   "  ((ATOM X) (C::ASSEMBLE-ATOM X)) "
   "  ((EQ (CAR X) 'CONST) (C::ASSEMBLE-CONST (CADR X))) "
   "  ((EQ (CAR X) 'GET-LOCAL) (C::ASSEMBLE-GET-LOCAL (CADR X))) "
+  "  ((EQ (CAR X) 'SET-LOCAL) (C::ASSEMBLE-SET-LOCAL (CDR X))) "
   "  ((EQ (CAR X) 'CALL) (C::ASSEMBLE-CALL (CDR X))) "
   "  ((EQ (CAR X) 'LOAD) (C::ASSEMBLE-LOAD (CDR X))) "
   "  ((EQ (CAR X) 'PROGN) (C::ASSEMBLE-PROGN (CDR X))) "
   "  ((EQ (CAR X) 'IF) (C::ASSEMBLE-IF (CDR X))) "
+  "  ((EQ (CAR X) 'WHEN) (C::ASSEMBLE-WHEN (CDR X))) "
+  "  ((EQ (CAR X) 'LOOP) (C::ASSEMBLE-LOOP (CDR X))) "
+  "  ((EQ (CAR X) '<) (C::ASSEMBLE-LESS (CDR X))) "
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not asm opcode|))))) "
   "(DE C::ASSEMBLE-ATOM (X) "
   " (COND "
@@ -5202,6 +5206,8 @@
   "  (T (ERROR (SYMCAT X '$$| is not supported const|))))) "
   "(DE C::ASSEMBLE-GET-LOCAL (X) "  ;; X of (GET-LOCAL X)
   " (CONS 0x20 (LEB128 X))) "
+  "(DE C::ASSEMBLE-SET-LOCAL (X) "  ;; X of (SET-LOCAL X=(idx val))
+  " (NCONC (C::ASSEMBLE-CODE (CADR X)) (CONS 0x21 (LEB128 (CAR X))))) "
   "(DE C::ASSEMBLE-TYPE (X) "
   " (COND "
   "  ((EQ X 'V2I) 0) "
@@ -5231,10 +5237,21 @@
   "(DE C::ASSEMBLE-IF (X) "  ;; X of (IF . X)
   " (CONC "
   "  (C::ASSEMBLE-CODE (CAR X)) "
-  "  (LIST 0x04 0x7f) "
+  "  (LIST 0x04 0x7f) "  ;; if with i32
   "  (C::ASSEMBLE-CODE (CADR X)) "
-  "  (LIST 0x05) "
+  "  (LIST 0x05) "  ;; else
   "  (C::ASSEMBLE-CODE (CAR (CDDR X))) "
+  "  (LIST 0x0b))) "
+  "(DE C::ASSEMBLE-WHEN (X) "  ;; X of (WHEN . X)
+  " (CONC "
+  "  (C::ASSEMBLE-CODE (CAR X)) "
+  "  (LIST 0x04 0x40) "  ;; if without value
+  "  (C::ASSEMBLE-CODE (CADR X)) "
+  "  (LIST 0x0b))) "
+  "(DE C::ASSEMBLE-LOOP (X) "  ;; X of (LOOP . X)
+  " (CONC "
+  "  (LIST 0x03 0x40) "  ;; loop without value
+  "  (C::ASSEMBLE-CODE (CAR X)) "
   "  (LIST 0x0b))) "
   "(DE C::GET-CONSTS (ASM) "
   " (REMOVE-DUPLICATES ((LABEL REC (LAMBDA (AS) "
@@ -5244,6 +5261,11 @@
   "     (LIST (CADR AS))) "
   "    (T (MAPCON (CDR AS) (FUNCTION (LAMBDA (Y) (REC (CAR Y))))))))) "
   "  ASM))) "
+  "(DE C::ASSEMBLE-LESS (X) "  ;; X of (< . X=(a b))
+  " (CONC "
+  "  (C::ASSEMBLE-CODE (CAR X)) "
+  "  (C::ASSEMBLE-CODE (CADR X)) "
+  "  (LIST 0x48))) "  ;; i32.lt_s
   "(DE C::COMPILE-ARG (N) "
   " (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) (+ 11 N))) " ;; 11: getArgF1
   "(DE C::COMPILE-APVAL (CELL) "
@@ -5313,7 +5335,6 @@
   " (SETQ FS (GET (CAR X) 'FSUBR)) "
   " (SETQ EX (GET (CAR X) 'EXPR)) "
   " (SETQ FE (GET (CAR X) 'FEXPR)) "
-    ;; TODO: Support FEXPR
   " (RETURN (COND "
   "  (FE "
   "   (C::COMPILE-FEXPR-CALL SYM ARGS FE X)) "
@@ -5379,6 +5400,16 @@
   "     (+ 31 N)) "  ;; ;; 31: setArgF1
   "    (LIST 'CALL 'V2I 2))) "  ;; 2: pop (val)
   "  (T (ERROR '$$|5+ args are not supported in SETQ|)))))) "
+  "(DE C::CREATE-SUBR-FROM-PROG (PR) (PROG (IDX-OBJ) "
+  " (SETQ IDX-OBJ (C::COMPILE-PROG PR)) "
+  " (RETURN (LIST 'SUBR (CAR IDX-OBJ) (LENGTH (CADR FN)) (CDR IDX-OBJ))))) "
+  "(DE C::COMPILE-PROG-CALL (SYM ARG X) "   ;; X of whole (PROG ...)
+  "   (C::COMPILE-FUNC-CALL-WITH-ALIST SYM ARGS "
+  "    (LIST 'CONST (C::CREATE-SUBR-FROM-PROG X)) "
+  "    NIL "  ;; no arguments
+       ;; Push alist (22: createAlistFromStack)
+  "    (LIST 'CALL 'I2V "
+  "     (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) 1))) "
   "(DE C::COMPILE-SPECIAL-CALL (SYM ARG X) "
   " (COND "
   "  ((EQ (CAR X) 'IF) (C::COMPILE-IF-CALL SYM ARG (CDR X))) "
@@ -5394,10 +5425,11 @@
   "  ((EQ (CAR X) 'LABEL) (C::COMPILE-LABEL-CALL SYM ARG (CDR X))) "
   "  ((EQ (CAR X) 'CSETQ) (C::COMPILE-CSETQ-CALL SYM ARG (CDR X))) "
   "  ((EQ (CAR X) 'SETQ) (C::COMPILE-SETQ-CALL SYM ARG (CDR X))) "
+  "  ((EQ (CAR X) 'PROG) (C::COMPILE-PROG-CALL SYM ARG X)) "  ;; Use whole X
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not supported special fn|))))) "
   "(DE C::SPECIALFNP (X) "
   " (MEMBER X '(IF QUOTE LOGAND2 LOGOR2 LOGXOR2 MAX2 MIN2 PLUS2 TIMES2 "
-  "  FUNCTION LABEL CSETQ SETQ))) "
+  "  FUNCTION LABEL CSETQ SETQ PROG GO RETURN))) "
   "(DE C::CREATE-SUBR-FROM-LAMBDA (FN) (PROG (IDX-OBJ) "
   " (C::VERIFY0 'LAMBDA FN) "
   " (SETQ IDX-OBJ (C::COMPILE-LAMBDA 'LAMBDA FN)) "
@@ -5431,8 +5463,8 @@
   "  (C::INIT-CV-STACK1 (CAR Y) (POSITION (CAR Y) ARGS)))))) "
   "(DE C::REPLACE-CV-REF (ARGS EXP CV) "
   " (COND "
+  "  ((NULL CV) EXP) "
   "  ((ATOM EXP) (IF (MEMBER EXP CV) (LIST 'CDDR EXP) EXP)) "
-     ;; TODO: Support PROGN
   "  ((EQ (CAR EXP) 'SETQ) "
   "   (IF (MEMBER (CADR EXP) CV) "
   "    (LIST 'RPLACD (LIST 'CDR (CADR EXP)) "
@@ -5441,6 +5473,7 @@
   "     (C::REPLACE-CV-REF ARGS (CAR (CDDR EXP)) CV)))) "
   "  ((EQ (CAR EXP) 'QUOTE) EXP) "
   "  ((EQ (CAR EXP) 'LAMBDA) EXP) "
+  "  ((EQ (CAR EXP) 'PROG) EXP) "
   "  ((GET (CAR EXP) 'FSUBR) EXP) "
   "  ((GET (CAR EXP) 'FEXPR) EXP) "
   "  (T (CONS (C::REPLACE-CV-REF ARGS (CAR EXP) CV) "
@@ -5452,6 +5485,24 @@
   "   (C::INIT-CV-STACK ARGS CV) "
   "   (LIST (C::COMPILE-CODE SYM ARGS (C::REPLACE-CV-REF ARGS EXP CV)))) "
   "  (C::COMPILE-CODE SYM ARGS EXP))))) "
+  "(DE C::COMPILE-PROG-FRAGMENT (FI ARGS FRGM N) "
+  " (LIST 'WHEN (LIST '< (LIST 'GET-LOCAL 1) N) "
+  "  (CONS 'PROGN (MAPLIST FRGM (FUNCTION (LAMBDA (E) "  ;; TODO: error check
+  "   (LIST 'CALL 'I2V (C::COMPILE-CODE FI ARGS (CAR E)) 3))))))) "  ;; 3: drop
+  "(DE C::COMPILE-PROG-BODY (FI ARGS BODY) (PROG (N CV ST FRAGMENTS) "
+    ;; Replace captured variables
+  " (SETQ CV (C::CAPTURED-VARS ARGS BODY)) "
+  " (SETQ BODY (C::REPLACE-CV-REF ARGS BODY CV)) "
+  " (SETQ ST (IF CV (C::INIT-CV-STACK ARGS CV) NIL)) "
+    ;; Create fragments
+  " (SETQ FRAGMENTS (LIST BODY))"  ;; TODO: split body by label
+  " (SETQ N 0) "
+  " (RETURN (LIST 'PROGN "
+  "  (CONS 'PROGN ST) "  ;; initialize stack if necessary
+  "  (LIST 'SET-LOCAL 1 0) "  ;; $idx = 0
+  "  (LIST 'LOOP (MAPCON FRAGMENTS (FUNCTION (LAMBDA (FR) "
+  "   (C::COMPILE-PROG-FRAGMENT FI ARGS (CAR FR) (SETQ N (+ N 1))))))) "
+  "  (LIST 'CONST NIL))))) "
   "(DE C::TRANSFORM-COND (X) "  ;; X of (COND . X)
   " (IF (NULL X) "
   "  NIL"
@@ -5497,6 +5548,7 @@
   "  ((EQ (CAR EXP) 'TIMES) (C::TRANSFORM-LSUBR 'TIMES2 (CDR EXP) 1)) "
   "  ((EQ (CAR EXP) '*) (C::TRANSFORM-LSUBR 'TIMES2 (CDR EXP) 1)) "
   "  ((EQ (CAR EXP) 'CONC) (C::TRANSFORM-LSUBR 'NCONC (CDR EXP) NIL)) "
+  "  ((OR (GET (CAR EXP) 'FSUBR) (GET (CAR EXP) 'FEXPR)) EXP) "
   "  (T (MAPLIST EXP (FUNCTION (LAMBDA (Y) (C::TRANSFORM (CAR Y)))))))) "
   "(DE C::CAPTURED-VARS (ARGS EXP) "
   " (REMOVE-DUPLICATES ((LABEL REC (LAMBDA (ARGS E INL) "
@@ -5506,6 +5558,9 @@
   "   ((EQ (CAR E) 'LAMBDA) "
   "    (REC "
   "     (SET-DIFFERENCE ARGS (CADR E)) (CAR (CDDR E)) T)) "
+  "   ((EQ (CAR E) 'PROG) "
+  "    (REC "
+  "     (SET-DIFFERENCE ARGS (CADR E)) (CDDR E) T)) "
   "   (T (MAPCON E (FUNCTION (LAMBDA (Y) "
   "    (REC ARGS (CAR Y) INL)))))))) ARGS EXP NIL))) "
   "(DE C::VERIFY0 (SYM FN) (PROG () "
@@ -5520,6 +5575,17 @@
   " (MAP *COMPILED-EXPRS* (FUNCTION (LAMBDA (X) (REMPROP (CAR X) 'EXPR)))) "
   " (CSETQ *COMPILED-EXPRS* NIL) "
   "))"
+  "(DE C::GET-LABELS (BODY) "
+  " (MAPCON BODY (FUNCTION (LAMBDA (X) "
+  "  (IF (ATOM (CAR X)) (LIST (CAR X)) NIL))))) "
+  ;;; Returns (SUBR-index . OBJ-list).
+  "(DE C::COMPILE-PROG (EXP) (PROG (BODY LS OBJS ASM) "  ;; EXP = (PROG ...)
+  " (SETQ BODY (C::TRANSFORM (CDDR EXP))) "
+  " (SETQ LS (C::GET-LABELS BODY)) "
+  " (SETQ ASM (C::COMPILE-PROG-BODY (CONS 'PROG LS) (CADR EXP) BODY)) "
+  " (C::ASSEMBLE ASM) "
+  " (SETQ OBJS (C::GET-CONSTS ASM)) "
+  " (RETURN (CONS (LOAD-WASM) OBJS)))) "
   ;;; Returns (SUBR-index . OBJ-list).
   "(DE C::COMPILE-LAMBDA (SYM FN) (PROG (OBJS ASM) "
   " (C::VERIFY0 SYM FN) "
@@ -5527,7 +5593,7 @@
   " (SETQ ASM (C::COMPILE-FUNC SYM (CADR FN) (CAR (CDDR FN)))) "
   " (C::ASSEMBLE ASM) "
   " (SETQ OBJS (C::GET-CONSTS ASM)) "
-  " (RETURN (CONS (LOAD-WASM) OBJS))))"
+  " (RETURN (CONS (LOAD-WASM) OBJS)))) "
   "(DE C::COMPILE1 (SYM) (PROG (FN IDX-OBJ) "
   " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
   " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR|))) "
