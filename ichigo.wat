@@ -170,6 +170,9 @@
  (global $trace_level (mut i32) (i32.const 0))
  (global $traceset_env (mut i32) (i32.const 0))
 
+ (global $st_level (mut i32) (i32.const 0))
+ (global $st_max_level (mut i32) (i32.const 5))
+
  (global $cons_counting (mut i32) (i32.const 0))
  (global $cons_count (mut i32) (i32.const 0))
  (global $cons_limit (mut i32) (i32.const 0))
@@ -451,6 +454,8 @@
  (global $str_eval_enter_hook i32 (i32.const 3350))
  (data (i32.const 3370) "STOP\00")  ;; 5
  (global $str_stop i32 (i32.const 3370))
+ (data (i32.const 3380) "BSTART\00")  ;; 7
+ (global $str_bstart i32 (i32.const 3380))
 
  ;;; Lisp Objects [0 - 1999 (0x7cf)]
  (global $sym_nil i32 (i32.const 0x000))
@@ -593,7 +598,8 @@
  (global $sym_vctag i32 (i32.const 0x0448))
  (global $sym_eval_enter_hook i32 (i32.const 0x0450))
  (global $sym_stop i32 (i32.const 0x0458))
- (global $primitive_obj_end i32 (i32.const 0x0460))
+ (global $sym_bstart i32 (i32.const 0x0460))
+ (global $primitive_obj_end i32 (i32.const 0x0468))
 
  ;;; Other Strings [5000 - 9999?]
  (data (i32.const 5000) "R4: EOF ON READ-IN\00")  ;; 19
@@ -1038,6 +1044,7 @@
             (call $printChar (i32.const 32))))  ;; ' '
        (call $printObj (local.get $obj))
        (call $terprif)
+       (global.set $st_level (global.get $st_max_level))
        (local.get $err))
 
  (func $perr2 (param $err i32) (param $obj1 i32) (param $obj2 i32) (result i32)
@@ -1056,7 +1063,18 @@
        (call $printChar (i32.const 32))  ;; ' '
        (call $printObj (local.get $obj2))
        (call $terprif)
+       (global.set $st_level (global.get $st_max_level))
        (local.get $err))
+
+ (func $maybePrintStackTrace (param $e i32)
+       (if (global.get $suppress_error)
+           (return))
+       (if (i32.eqz (global.get $st_level))
+           (return))
+       (call $printErrorPrefix)
+       (call $printObj (local.get $e))
+       (call $terprif)
+       (global.set $st_level (i32.sub (global.get $st_level) (i32.const 1))))
 
  ;;; Output a string representation of a fixnum to `printp`.
  ;;; `printp` should point to '\00'.
@@ -2447,6 +2465,8 @@
   (call $ilog (global.get $sp))
   (call $ilog (i32.const 22222))
   (call $ilog (local.get $ret))
+  (if (call $errorp (local.get $ret))
+      (call $maybePrintStackTrace (local.get $e)))
   (local.get $ret))
 
  (func $apply (param $fn i32) (param $args i32) (param $a i32) (result i32)
@@ -2930,6 +2950,8 @@
              (global.get $idx_nextsubr) (i32.const 0))
        (call $initsymSubr (global.get $sym_fencode) (global.get $str_fencode)
              (global.get $idx_fencode) (i32.const 1))
+       (call $initsymSubr (global.get $sym_bstart) (global.get $str_bstart)
+             (global.get $idx_bstart) (i32.const 0))
 
        ;;; FSUBR
        (call $initsymKv
@@ -3361,6 +3383,8 @@
  (global $idx_times2 i32 (i32.const 210))
  (elem (i32.const 211) $fsubr_time)
  (global $idx_time i32 (i32.const 211))
+ (elem (i32.const 212) $subr_bstart)
+ (global $idx_bstart i32 (i32.const 212))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -3563,6 +3587,7 @@
        (local $exps i32)
        (local $exp i32)
        (local $ret i32)
+       (local $lbl i32)
        (local $traceset_on i32)
        (local.set $a (call $getAArg))
        (local.set $args (call $cdr (call $getEArg)))
@@ -3596,16 +3621,20 @@
                            (local.get $exp) (global.get $ce_go))
                      (then
                       ;; Search the label
+                      (local.set $lbl (call $getCEValue (local.get $exp)))
                       (local.set
                        $exp (call $member
-                                  (call $getCEValue (local.get $exp))
+                                  (local.get $lbl)
                                   (call $cdr (local.get $args))))
                       ;; Label not found
                       (if (i32.eqz (local.get $exp))
                           (then
                            (local.set
                             $ret
-                            (call $makeStrError (global.get $str_err_label)))
+                            (call $perr1
+                                  (call $makeStrError
+                                        (global.get $str_err_label))
+                                  (local.get $lbl)))
                            (br $block)))
                       ;; Note: `exp` points to a list, so errorp returns 0
                       (local.set $exps (local.get $exp))))
@@ -5061,7 +5090,6 @@
          (local.set $ret (call $int2fixnum (global.get $next_subr)))
          (global.set
           $next_subr (i32.add (global.get $next_subr) (i32.const 1)))
-         (global.set $bwritep (global.get $bwrite_start))
          (local.get $ret))
 
    (func $subr_nextsubr (result i32)
@@ -5124,6 +5152,10 @@
        (call $terprif)
        (call $push (i32.const 0))  ;; Don't need to eval return value
        (local.get $ret))
+
+   (func $subr_bstart (result i32)
+         (global.set $bwritep (global.get $bwrite_start))
+         (i32.const 0))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL
@@ -5800,6 +5832,7 @@
   " (SETQ BODY (C::TRANSFORM (CDDR EXP))) "
   " (SETQ LS (C::GET-LABELS BODY)) "
   " (SETQ ASM (C::COMPILE-PROG-BODY (LIST 'PROG LS) (CADR EXP) BODY)) "
+  " (BSTART)"
   " (C::ASSEMBLE ASM) "
   " (SETQ OBJS (C::GET-CONSTS ASM)) "
   " (RETURN (CONS (LOAD-WASM) OBJS)))) "
@@ -5808,6 +5841,7 @@
   " (C::VERIFY0 SYM FN) "
   " (SETQ FN (LIST (CAR FN) (CADR FN) (C::TRANSFORM (CAR (CDDR FN))))) "
   " (SETQ ASM (C::COMPILE-FUNC SYM (CADR FN) (CAR (CDDR FN)))) "
+  " (BSTART)"
   " (C::ASSEMBLE ASM) "
   " (SETQ OBJS (C::GET-CONSTS ASM)) "
   " (RETURN (CONS (LOAD-WASM) OBJS)))) "
@@ -5873,6 +5907,7 @@
        (call $drop (call $apply (global.get $sym_eval_enter_hook)
                          (i32.const 0) (i32.const 0)))
 
+       (global.set $st_level (i32.const 0))
        (call $rdset (i32.const 51200))
        (call $printObj
              (call $eval (call $read) (local.get $alist)))
@@ -5892,6 +5927,7 @@
        (call $drop (call $apply (global.get $sym_eval_enter_hook)
                          (i32.const 0) (i32.const 0)))
 
+       (global.set $st_level (i32.const 0))
        (call $rdset (i32.const 51200))
        (local.set $fn (call $read))
        (call $push (local.get $fn))  ;; For GC (fn)

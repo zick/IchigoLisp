@@ -90,6 +90,8 @@ function setDebugLevel() {
 var num_pass = 0;
 var num_fail = 0;
 var test_set_idx = 0;
+var test_start_time = 0;
+var test_finish_time = 0;
 function doTest(i) {
     var str = test_data[test_set_idx][i][0];
     writeToTerminal(str + '\n');
@@ -129,10 +131,14 @@ function startTest(idx) {
     test_set_idx = idx;
     num_pass = 0;
     num_fail = 0;
+    test_start_time = new Date().getTime();
     doTest(0);
 }
 function endTest() {
-    setMessage('pass: ' + num_pass + '  fail: ' + num_fail + ' (finished)');
+    test_finish_time = new Date().getTime();
+    var duration_ms = test_finish_time - test_start_time;
+    setMessage('pass: ' + num_pass + '  fail: ' + num_fail +
+               ' (finished in ' + duration_ms + ' ms)');
 }
 
 function moreOptions() {
