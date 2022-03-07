@@ -506,6 +506,11 @@ test_data.push([
     ["(compile '(funcfn2))", "NIL"],
     ["(funcfn2 'z '(a b c))", "((Z . A) (Z . B) (Z . C))"],
 
+    ["(defun funcfn3 (x) (maplist x 'car))", "FUNCFN3"],
+    ["(funcfn3 '(a b c))", "(A B C)"],
+    ["(compile '(funcfn3))", "NIL"],
+    ["(funcfn3 '(a b c))", "(A B C)"],
+
     ["(defun labelfn (x) ((label rec (lambda (n) " +
      "(if (zerop n) 0 (+ n (rec (1- n)))))) x))", "LABELFN"],
     ["(LABELFN 10)", "55"],

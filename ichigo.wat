@@ -1995,17 +1995,17 @@
        (local $tmp i32)
        (local $fn_lookup i32)
        (local.set $fn_lookup (i32.const 0))
-       ;; Check if it's EXPR
-       (local.set $tmp (call $get (local.get $fn) (global.get $sym_expr)))
-       (if (i32.ne (local.get $tmp) (i32.const 0))
-           (return (call $exprCall (local.get $tmp) (local.get $narg))))
-       ;; Check if it's SUBR
-       (local.set $tmp (call $get (local.get $fn) (global.get $sym_subr)))
-       (if (i32.ne (local.get $tmp) (i32.const 0))
-           (return (call $subrCall
-                         (call $fixnum2int (call $car (local.get $tmp)))
-                         (local.get $narg))))
        (loop $loop
+          ;; Check if it's EXPR
+          (local.set $tmp (call $get (local.get $fn) (global.get $sym_expr)))
+          (if (i32.ne (local.get $tmp) (i32.const 0))
+              (return (call $exprCall (local.get $tmp) (local.get $narg))))
+          ;; Check if it's SUBR
+          (local.set $tmp (call $get (local.get $fn) (global.get $sym_subr)))
+          (if (i32.ne (local.get $tmp) (i32.const 0))
+              (return (call $subrCall
+                            (call $fixnum2int (call $car (local.get $tmp)))
+                            (local.get $narg))))
           ;; Check if it's (LAMBDA ...)
           (if (i32.eq (call $safecar (local.get $fn)) (global.get $sym_lambda))
               (return (call $exprCall (local.get $fn) (local.get $narg))))
