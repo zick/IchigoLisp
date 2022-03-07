@@ -658,6 +658,7 @@
  (elem (i32.const 12) $getArgF2)  ;; i2i
  (elem (i32.const 13) $getArgF3)  ;; i2i
  (elem (i32.const 14) $getArgF4)  ;; i2i
+ (elem (i32.const 15) $getArgFN)  ;; ii2i
 
  (elem (i32.const 20) $subrCall)  ;; ii2i
  (elem (i32.const 21) $funcCall)  ;; ii2i
@@ -673,6 +674,7 @@
  (elem (i32.const 32) $setArgF2)  ;; ii2v
  (elem (i32.const 33) $setArgF3)  ;; ii2v
  (elem (i32.const 34) $setArgF4)  ;; ii2v
+ (elem (i32.const 35) $setArgFN)  ;; iii2v
 
  (func $getsp (result i32)
        (global.get $sp))
@@ -3031,15 +3033,32 @@
  ;;; Returns the arguments from SUBR stack using frame pointer
  ;;; The frame pointer points just above arguments.
  (func $getArgF1 (param $fmp i32) (result i32)
-      (i32.load (i32.sub (local.get $fmp) (i32.const 16))))
+       (i32.load (i32.sub (local.get $fmp) (i32.const 16))))
  (func $getArgF2 (param $fmp i32) (result i32)
-      (i32.load (i32.sub (local.get $fmp) (i32.const 12))))
+       (i32.load (i32.sub (local.get $fmp) (i32.const 12))))
  (func $getArgF3 (param $fmp i32) (result i32)
-      (i32.load (i32.sub (local.get $fmp) (i32.const 8))))
+       (i32.load (i32.sub (local.get $fmp) (i32.const 8))))
  (func $getArgFRest (param $fmp i32) (result i32)
-      (i32.load (i32.sub (local.get $fmp) (i32.const 4))))
+       (i32.load (i32.sub (local.get $fmp) (i32.const 4))))
  (func $getArgF4 (param $fmp i32) (result i32)
-      (call $safecar (call $getArgRest)))
+       (call $safecar (call $getArgFRest (local.get $fmp))))
+ (func $getArgFN (param $fmp i32) (param $n i32) (result i32)  ;; $n is 0-based
+       (local $p i32)
+       (if (i32.eq (local.get $n) (i32.const 0))
+           (return (call $getArgF1 (local.get $fmp))))
+       (if (i32.eq (local.get $n) (i32.const 1))
+           (return (call $getArgF2 (local.get $fmp))))
+       (if (i32.eq (local.get $n) (i32.const 2))
+           (return (call $getArgF3 (local.get $fmp))))
+       (local.set $n (i32.sub (local.get $n) (i32.const 3)))
+       (local.set $p (call $getArgFRest (local.get $fmp)))
+       (block $block
+         (loop $loop
+            (br_if $block (i32.eqz (local.get $n)))
+            (local.set $p (call $safecdr (local.get $p)))
+            (local.set $n (i32.sub (local.get $n) (i32.const 1)))
+            (br $loop)))
+       (call $safecar (local.get $p)))
  (func $getAArgFInSubr (param $fmp i32) (result i32)
       (i32.load (i32.sub (local.get $fmp) (i32.const 20))))
 
@@ -3064,16 +3083,59 @@
       (i32.load (i32.sub (global.get $sp) (i32.const 4))))
 
  (func $setArgF1 (param $fmp i32) (param $val i32)
-      (i32.store (i32.sub (local.get $fmp) (i32.const 16)) (local.get $val)))
+       (i32.store (i32.sub (local.get $fmp) (i32.const 16)) (local.get $val)))
  (func $setArgF2 (param $fmp i32) (param $val i32)
-      (i32.store (i32.sub (local.get $fmp) (i32.const 12)) (local.get $val)))
+       (i32.store (i32.sub (local.get $fmp) (i32.const 12)) (local.get $val)))
  (func $setArgF3 (param $fmp i32) (param $val i32)
-      (i32.store (i32.sub (local.get $fmp) (i32.const 8)) (local.get $val)))
+       (i32.store (i32.sub (local.get $fmp) (i32.const 8)) (local.get $val)))
+ (func $setArgFRest (param $fmp i32) (param $val i32)
+       (i32.store (i32.sub (local.get $fmp) (i32.const 4)) (local.get $val)))
  (func $setArgF4 (param $fmp i32) (param $val i32)
-       (local $cell i32)
-       (local.set $cell (call $getArgFRest (local.get $fmp)))
-       (if (i32.ne (local.get $cell) (i32.const 0))
-           (call $setcar (local.get $cell) (local.get $val))))
+       (call $setArgFN (local.get $fmp) (i32.const 3) (local.get $val)))
+ (func $makeNList (param $n i32) (result i32)
+       (local $ret i32)
+       (local.set $ret (i32.const 0))
+       (loop $loop
+          (if (i32.eqz (local.get $n))
+              (return (local.get $ret)))
+          (local.set $ret (call $cons (i32.const 0) (local.get $ret)))
+          (local.set $n (i32.sub (local.get $n) (i32.const 1)))
+          (br $loop))
+       (i32.const 0))
+ (func $maybeExpandList (param $lst i32) (param $n i32) (result i32)
+       (local $len i32)
+       (local $tmp i32)
+       (local.set $len (call $length (local.get $lst)))
+       (if (i32.ge_s (local.get $len) (local.get $n))
+           (return (local.get $lst)))
+       (if (i32.eqz (local.get $len))
+           (return (call $makeNList (local.get $n))))
+       (call $push (local.get $lst))  ;; For GC (lst)
+       (local.set
+        $tmp (call $makeNList (i32.sub (local.get $n) (local.get $len))))
+       (call $drop (call $pop))  ;; For GC (lst)
+       (call $nconc (local.get $lst) (local.get $tmp)))
+ ;;; $n is 0-based
+ (func $setArgFN (param $fmp i32) (param $n i32) (param $val i32)
+       (local $p i32)
+       (if (i32.eq (local.get $n) (i32.const 0))
+           (return (call $setArgF1 (local.get $fmp) (local.get $val))))
+       (if (i32.eq (local.get $n) (i32.const 1))
+           (return (call $setArgF2 (local.get $fmp) (local.get $val))))
+       (if (i32.eq (local.get $n) (i32.const 2))
+           (return (call $setArgF3 (local.get $fmp) (local.get $val))))
+       (local.set $n (i32.sub (local.get $n) (i32.const 2)))  ;; n >= 1
+       (local.set $p (call $getArgFRest (local.get $fmp)))
+       (local.set $p (call $maybeExpandList (local.get $p) (local.get $n)))
+       (call $setArgFRest (local.get $fmp) (local.get $p))
+       (local.set $n (i32.sub (local.get $n) (i32.const 1)))  ;; n >= 0
+       (block $block
+         (loop $loop
+            (br_if $block (i32.eqz (local.get $n)))
+            (local.set $p (call $cdr (local.get $p)))
+            (local.set $n (i32.sub (local.get $n) (i32.const 1)))
+            (br $loop)))
+       (call $setcar (local.get $p) (local.get $val)))
 
  (elem (i32.const 100) $subr_car)
  (global $idx_car i32 (i32.const 100))
@@ -5176,8 +5238,8 @@
   ")) "
   "(DE C::TYPE-SECTION () (PROG () "
   " (BWRITE 0x01) "  ;; section number
-  " (BWRITE 0x20) "  ;; section size
-  " (BWRITE 0x06) "  ;; 6 entry
+  " (BWRITE 0x26) "  ;; section size
+  " (BWRITE 0x07) "  ;; 7 entry
   " (BWRITE 0x60) "  ;; functype (void -> i32)
   " (BWRITE 0x00) "  ;; no arguments
   " (BWRITE 0x01) "  ;; 1 value
@@ -5209,6 +5271,12 @@
   " (BWRITE 0x7f) "  ;; i32
   " (BWRITE 0x01) "  ;; 1 value
   " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x60) "  ;; functype (i32*i32*i32 -> void)
+  " (BWRITE 0x03) "  ;; 3 parameters
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x7f) "  ;; i32
+  " (BWRITE 0x00) "  ;; 0 value
   ")) "
   "(DE C::IMPORT-SECTION (MEM TBL) (PROG (MS TS SS)"
   " (SETQ MS (ULEB128 MEM)) "
@@ -5315,6 +5383,7 @@
   "  ((EQ X 'II2I) 3) "
   "  ((EQ X 'II2V) 4) "
   "  ((EQ X 'III2I) 5) "
+  "  ((EQ X 'III2V) 6) "
   "  (T (ERROR (SYMCAT X '$$| is not supported type|))))) "
   "(DE C::ASSEMBLE-CALL (X L) "  ;; X of (CALL . X=(TYPE . ARGS))
   " (NCONC "
@@ -5372,7 +5441,9 @@
   "(DE C::ASSEMBLE-BR (X L) "  ;; X of (BR . X=NIL)
   "  (CONS 0x0c (LEB128 (1- L)))) "  ;; br
   "(DE C::COMPILE-ARG (N L) "
-  " (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) (+ 11 N))) " ;; 11: getArgF1
+  " (IF (< N 4) "
+  "  (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) (+ 11 N)) " ;; 11: getArgF1
+  "  (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) N 15))) " ;; 15: getArgFN
   "(DE C::COMPILE-APVAL (CELL L) "
   " (LIST 'CALL 'I2I "
   "  (LIST 'LOAD (LIST 'CONST CELL)) "
@@ -5496,15 +5567,20 @@
   "    (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) "  ;; 10: getAArgFInSubr
   "    28)) "  ;; 28: setVarInAlist
      ;; Set var in stack
-  "  ((< N 5)"
+  "  (T "
   "   (LIST 'PROGN "
   "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARG (CADR X)) 1) "  ;; 1: push
-  "    (LIST 'CALL 'II2V "
-  "     (LIST 'GET-LOCAL 0) "
-  "     (LIST 'CALL 'V2I 7) "  ;; 7: peek (val)
-  "     (+ 31 N)) "  ;; ;; 31: setArgF1
-  "    (LIST 'CALL 'V2I 2))) "  ;; 2: pop (val)
-  "  (T (ERROR '$$|5+ args are not supported in SETQ|)))))) "
+  "    (IF (< N 4) "
+  "     (LIST 'CALL 'II2V "
+  "      (LIST 'GET-LOCAL 0) "
+  "      (LIST 'CALL 'V2I 7) "  ;; 7: peek (val)
+  "      (+ 31 N)) "  ;; ;; 31: setArgF1
+  "     (LIST 'CALL 'III2V "
+  "      (LIST 'GET-LOCAL 0) "
+  "      N"
+  "      (LIST 'CALL 'V2I 7) "  ;; 7: peek (val)
+  "      35)) "  ;; ;; 35: setArgFN
+  "    (LIST 'CALL 'V2I 2))))))) "  ;; 2: pop (val)
   "(DE C::CREATE-SUBR-FROM-PROG (PR) (PROG (IDX-OBJ) "
   " (SETQ IDX-OBJ (C::COMPILE-PROG PR)) "
   " (RETURN (LIST 'SUBR (CAR IDX-OBJ) (LENGTH (CADR FN)) (CDR IDX-OBJ))))) "
@@ -5570,11 +5646,18 @@
   "  ((ATOM X) (C::COMPILE-ATOM X ARGS)) "
   "  (T (C::COMPILE-COMP SYM ARGS X)))) "
   "(DE C::INIT-CV-STACK1 (V N) "
-  " (LIST 'CALL 'II2V "
-  "  (LIST 'GET-LOCAL 0) "
-  "  (LIST 'CALL 'II2I (LIST 'CONST 'C::VCTAG) "
-  "   (LIST 'CALL 'II2I (LIST 'CONST V) (C::COMPILE-ARG N) 6) 6) "  ;; 6: cons
-  "  (+ 31 N))) "  ;; 31: setArgF1
+  " (IF (< N 4) "
+  "  (LIST 'CALL 'II2V "
+  "   (LIST 'GET-LOCAL 0) "
+  "   (LIST 'CALL 'II2I (LIST 'CONST 'C::VCTAG) "
+  "    (LIST 'CALL 'II2I (LIST 'CONST V) (C::COMPILE-ARG N) 6) 6) "  ;; 6: cons
+  "   (+ 31 N)) "  ;; 31: setArgF1
+  "  (LIST 'CALL 'III2V "
+  "   (LIST 'GET-LOCAL 0) "
+  "   (LIST 'CALL 'II2I (LIST 'CONST 'C::VCTAG) "
+  "    (LIST 'CALL 'II2I (LIST 'CONST V) (C::COMPILE-ARG N) 6) 6) "  ;; 6: cons
+  "   N"
+  "   35))) "  ;; 35: setArgFN
   "(DE C::INIT-CV-STACK (ARGS CV) "
   " (MAPLIST CV (FUNCTION (LAMBDA (Y) "
   "  (C::INIT-CV-STACK1 (CAR Y) (POSITION (CAR Y) ARGS)))))) "
@@ -5703,8 +5786,6 @@
   " (IF (ATOM FN) (ERROR (SYMCAT SYM '$$| is not a function|))) "
   " (IF (NOT (EQ (CAR FN) 'LAMBDA)) "
   "  (ERROR (SYMCAT SYM '$$| is not a lambda|))) "
-  " (IF (> (LENGTH (CADR FN)) 4) "  ;; TODO: Remove this restriction
-  "  (ERROR '$$|more than 4 arguments are not supported|)) "
   " )) "
   "(CSETQ *COMPILED-EXPRS* NIL) "
   "(DE EVAL-ENTER-HOOK () (PROG ()"
@@ -5767,6 +5848,8 @@
           (local.set $ret (call $eval (local.get $rd) (i32.const 0)))
           (call $printObj (local.get $ret))
           (call $ilogstr (i32.const 40960))
+          (if (call $errorp (local.get $ret))
+              (call $logstr (i32.const 40960)))
           (br_if $loop (i32.eqz (call $errorp (local.get $ret))))))
  ;;; END EXPR/FEXPR
 

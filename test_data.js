@@ -567,4 +567,16 @@ test_data.push([
     ["(loopfn 10)", "55"],
     ["(compile '(loopfn))", "NIL"],
     ["(loopfn 10)", "55"],
+
+    ["(defun arg8fn (a b c d e x y z) (list z y x e d c b a))", "ARG8FN"],
+    ["(arg8fn 1 2 3 4 5 6 7 8)", "(8 7 6 5 4 3 2 1)"],
+    ["(compile '(arg8fn))", "NIL"],
+    ["(arg8fn 1 2 3 4 5 6 7 8)", "(8 7 6 5 4 3 2 1)"],
+
+    ["(defun var8fn() (prog (a b c d e x y z) (setq a 1) (setq c 2) " +
+     "(setq e 3) (setq y 4) (setq b 5) (setq d 6) (setq x 7) (setq z 8) " +
+     "(return (list a b c d e x y z))))", "VAR8FN"],
+    ["(var8fn)", "(1 5 2 6 3 7 4 8)"],
+    ["(compile '(var8fn))", "NIL"],
+    ["(var8fn)", "(1 5 2 6 3 7 4 8)"],
 ]);
