@@ -676,6 +676,7 @@
  (elem (i32.const 27) $apvalSet)  ;; ii2i
  (elem (i32.const 28) $setVarInAlist)  ;; ii2i
 
+ (elem (i32.const 30) $setAArgFInSubr)  ;; ii2i
  (elem (i32.const 31) $setArgF1)  ;; ii2v
  (elem (i32.const 32) $setArgF2)  ;; ii2v
  (elem (i32.const 33) $setArgF3)  ;; ii2v
@@ -3158,6 +3159,8 @@
             (local.set $n (i32.sub (local.get $n) (i32.const 1)))
             (br $loop)))
        (call $setcar (local.get $p) (local.get $val)))
+ (func $setAArgFInSubr (param $fmp i32) (param $val i32)
+      (i32.store (i32.sub (local.get $fmp) (i32.const 20)) (local.get $val)))
 
  (elem (i32.const 100) $subr_car)
  (global $idx_car i32 (i32.const 100))
@@ -5186,6 +5189,8 @@
   " (PUNCHDEF (LAMBDA (X) (PROG (V) (SETQ V (GET X 'EXPR)) "
   "  (IF V (RETURN (PROG2 (PRINT V) X))) (SETQ V (GET X 'FEXPR)) "
   "  (IF V (RETURN (PROG2 (PRINT V) X)))))) "
+  " (COMMON (LAMBDA (X) (FLAG X 'COMMON)))"  ;; Will be compiled
+  " (UNCOMMON (LAMBDA (X) (REMFLAG X 'COMMON))) "  ;; Will be compiled
   "))"
   "(DEFLIST '( "
   " (CSETQ (LAMBDA (S A) (CSET (CAR S) (EVAL (CAR (CDR S)) A)))) "
@@ -5490,6 +5495,7 @@
   "  ((NULL X) (LIST 'CONST NIL)) "
   "  ((FIXP X) (LIST 'CONST X)) "
   "  ((GET X 'APVAL) (C::COMPILE-APVAL (PROP X 'APVAL))) "
+  "  ((GET X 'COMMON) (C::COMPILE-GET-ALIST-VAR X)) "
   "  ((POSITION X ARGS) (C::COMPILE-ARG (POSITION X ARGS))) "
   "  ((SYMBOLP X) (C::COMPILE-GET-ALIST-VAR X)) "
   "  (T (ERROR (SYMCAT X '$$| is not supported atom|))))) "
@@ -5555,7 +5561,7 @@
   "  ((OR SB EX) "
   "   (C::COMPILE-FUNC-CALL SYM ARGS (LIST 'CONST (CAR X)) (CDR X))) "
      ;; Call local function if exists
-  "  ((MEMBER (CAR X) ARGS) "
+  "  ((AND (MEMBER (CAR X) ARGS) (NOT (GET (CAR X) 'COMMON))) "
   "   (C::COMPILE-FUNC-CALL SYM ARGS "
   "    (C::COMPILE-ARG (POSITION (CAR X) ARGS)) (CDR X))) "
      ;; Assume the function will be defined later
@@ -5591,7 +5597,7 @@
   "(DE C::COMPILE-SETQ-CALL (SYM ARG X) (PROG (N)  "   ;; X of (SETQ . X)
   " (SETQ N (POSITION (CAR X) ARGS))"
   " (RETURN (COND "
-  "  ((NOT N) "
+  "  ((OR (NOT N) (GET (CAR X) 'COMMON)) "
       ;; Set var in alist
   "   (LIST 'CALL 'III2I "
   "    (LIST 'CONST (CAR X)) "
@@ -5710,13 +5716,27 @@
   "  ((GET (CAR EXP) 'FEXPR) EXP) "
   "  (T (CONS (C::REPLACE-CV-REF ARGS (CAR EXP) CV) "
   "           (C::REPLACE-CV-REF ARGS (CDR EXP) CV))))) "
-  "(DE C::COMPILE-FUNC (SYM ARGS EXP) (PROG (CV) "
+  "(DE C::INIT-COMMON-VARS (ARGS COV) "
+  " (IF (NULL COV)"
+  "  NIL "
+  "  (CONS "
+  "   (LIST 'CALL 'II2V "
+  "    (LIST 'GET-LOCAL 0) "
+  "    (LIST 'CALL 'II2I "
+  "     (LIST 'CALL 'II2I (LIST 'CONST (CAR COV)) "
+  "      (C::COMPILE-ARG (POSITION (CAR COV) ARGS)) 6) "  ;; 6: cons
+  "     (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) "  ;; 10: getAArgFInSubr
+  "     6) "  ;; 6: cons
+  "    30) "  ;; 30: setAArgFInSubr
+  "   (C::INIT-COMMON-VARS ARGS (CDR COV))))) "
+  "(DE C::COMPILE-FUNC (SYM ARGS EXP) (PROG (CV COV) "
   " (SETQ CV (C::CAPTURED-VARS ARGS EXP)) "
-  " (RETURN (IF CV"
+  " (SETQ COV (REMOVE-IF-NOT (FUNCTION (LAMBDA (X) (GET X 'COMMON))) ARGS)) "
+  " (RETURN "
   "  (CONC (LIST 'PROGN) "
   "   (C::INIT-CV-STACK ARGS CV) "
-  "   (LIST (C::COMPILE-CODE SYM ARGS (C::REPLACE-CV-REF ARGS EXP CV)))) "
-  "  (C::COMPILE-CODE SYM ARGS EXP))))) "
+  "   (C::INIT-COMMON-VARS ARGS COV) "
+  "   (LIST (C::COMPILE-CODE SYM ARGS (C::REPLACE-CV-REF ARGS EXP CV))))))) "
   "(DE C::COMPILE-PROG-CODE (FI ARGS EXP) (PROG (ASM) "
   " (IF (ATOM EXP) (RETURN (LIST 'PROG))) "  ;; Return nop for a label
   " (SETQ ASM (C::COMPILE-CODE FI ARGS EXP)) "
@@ -5863,6 +5883,7 @@
   " C::VCTAG "
   " ) (FUNCTION (LAMBDA (X) (REMOB (CAR X))))) "
   " (COMPILE '(NOT CAAR CADR CDAR CDDR SCAR SCDR CONSP SYMBOLP)) "
+  " (COMPILE '(COMMON UNCOMMON)) "
   ;; Greeting
   "(PRINT '$$|\F0\9F\8D\93 Ichigo Lisp version 0.0.1 powered by WebAssembly|) "
   "(PRINT '$$|\F0\9F\8D\93 Enjoy LISP 1.5(-ish) programming|) "

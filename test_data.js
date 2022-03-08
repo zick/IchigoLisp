@@ -256,6 +256,10 @@ test_data.push([
     ["(prog () (csetq gomi 'kasu) (return (remob 'kasu)))", "KASU"],
     ["(eq gomi 'kasu)", "NIL"],
     ["(evlis '(t f (+ 1 2)) nil)", "(*T* NIL 3)"],
+    ["(common '(a))", "NIL"],
+    ["(null (get 'a 'common))", "NIL"],
+    ["(uncommon '(a))", "NIL"],
+    ["(get 'a 'common)", "NIL"],
 
     // APVALs
     ["blank", " "],
@@ -584,4 +588,20 @@ test_data.push([
     ["(var8fn)", "(1 5 2 6 3 7 4 8)"],
     ["(compile '(var8fn))", "NIL"],
     ["(var8fn)", "(1 5 2 6 3 7 4 8)"],
+
+    ["(common '(cov1))", "NIL"],
+    ["(defun commonfn () (* cov1 2))", "COMMONFN"],
+    ["((lambda (cov1) (commonfn)) 9)", "18"],
+    ["(compile '(commonfn))", "NIL"],
+    ["((lambda (cov1) (commonfn)) 9)", "18"],
+
+    ["(defun commonfn2 (cov1 f) (f))", "COMMONFN2"],
+    ["(commonfn2 99 '(lambda() (1+ cov1)))", "100"],
+    ["(compile '(commonfn2))", "NIL"],
+    ["(commonfn2 99 '(lambda() (1+ cov1)))", "100"],
+
+    ["(defun commonfn3 () (setq cov1 (+ cov1 2)))", "COMMONFN3"],
+    ["((lambda (cov1) (cons (commonfn3) cov1)) 9)", "(11 . 11)"],
+    ["(compile '(commonfn3))", "NIL"],
+    ["((lambda (cov1) (cons (commonfn3) cov1)) 9)", "(11 . 11)"],
 ]);
