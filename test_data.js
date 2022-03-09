@@ -616,4 +616,13 @@ test_data.push([
      "SPECIALFN3"],
     ["(compile '(specialfn specialfn2 specialfn3))", "NIL"],
     ["(specialfn3 2)", "(4 6 2)"],
+
+    ["(defun spprogfn () (prog () (return (* sv1 2))))", "SPPROGFN"],
+    ["(defun spprogfn2 (x) (prog (sv1) (setq sv1 x) (return (spprogfn))))",
+     "SPPROGFN2"],
+    ["(defun spprogfn3 (x) (prog (sv1) (setq sv1 x) " +
+     "(return (list (spprogfn) (spprogfn2 (1+ sv1)) sv1))))",
+     "SPPROGFN3"],
+    ["(compile '(spprogfn spprogfn2 spprogfn3))", "NIL"],
+    ["(spprogfn3 2)", "(4 6 2)"],
 ]);

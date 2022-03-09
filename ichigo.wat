@@ -658,6 +658,8 @@
  (elem (i32.const 5) $cdr)  ;; i2i
  (elem (i32.const 6) $cons)  ;; ii2i
  (elem (i32.const 7) $peek)  ;; v2i
+ (elem (i32.const 8) $debugpush)  ;; i2v
+ (elem (i32.const 9) $debugpop)  ;; v2i
 
  (elem (i32.const 10) $getAArgFInSubr)  ;; i2i
  (elem (i32.const 11) $getArgF1)  ;; i2i
@@ -694,6 +696,16 @@
  (func $drop (param i32))
  (func $peek (result i32)
       (i32.load (i32.sub (global.get $sp) (i32.const 4))))
+ (func $debugpush (param $val i32)
+       (call $log (i32.const 666000001))
+       (call $log (local.get $val))
+       (i32.store (global.get $sp) (local.get $val))
+       (global.set $sp (i32.add (global.get $sp) (i32.const 4))))
+ (func $debugpop (result i32)
+       (call $log (i32.const 666000002))
+       (call $log (i32.load (i32.sub (global.get $sp) (i32.const 4))))
+      (global.set $sp (i32.sub (global.get $sp) (i32.const 4)))
+      (i32.load (global.get $sp)))
 
  (func $int2fixnum (param $n i32) (result i32)
        (i32.add (i32.shl (local.get $n) (i32.const 2)) (i32.const 2)))
@@ -5827,21 +5839,27 @@
   "   ((NULL BODY) (ERROR (SYMCAT '$$|Label not found: | LBL))) "
   "   ((EQ (CAR BODY) LBL) (C::GET-PROG-FRAGMENT-AFTER NIL (CDR BODY))) "
   "   (T (C::GET-PROG-FRAGMENT-AFTER LBL (CDR BODY)))))) "
-  "(DE C::COMPILE-PROG-BODY (FI ARGS BODY) (PROG (N CV ST FRAGMENTS) "
+  "(DE C::COMPILE-PROG-BODY (FI ARGS BODY) (PROG (N CV COV SV FRAGMENTS) "
     ;; Replace captured variables
   " (SETQ CV (C::CAPTURED-VARS ARGS BODY)) "
+  " (SETQ COV (REMOVE-IF-NOT (FUNCTION (LAMBDA (X) (GET X 'COMMON))) ARGS)) "
+  " (SETQ SV (REMOVE-IF-NOT (FUNCTION (LAMBDA (X) (GET X 'SPECIAL))) ARGS)) "
   " (SETQ BODY (C::REPLACE-CV-REF ARGS BODY CV)) "
-  " (SETQ ST (IF CV (C::INIT-CV-STACK ARGS CV) NIL)) "
     ;; Create fragments
   " (SETQ FRAGMENTS (MAPLIST (CONS NIL (CADR FI)) (FUNCTION (LAMBDA (X) "
   "  (C::GET-PROG-FRAGMENT-AFTER (CAR X) BODY))))) "
   " (SETQ N 0) "
-  " (RETURN (LIST 'BLOCK "
-  "  (CONS 'PROGN ST) "  ;; initialize stack if necessary
-  "  (LIST 'SET-LOCAL 1 0) "  ;; $idx = 0
-  "  (LIST 'LOOP (CONS 'PROGN (MAPLIST FRAGMENTS (FUNCTION (LAMBDA (FR) "
-  "   (C::COMPILE-PROG-FRAGMENT FI ARGS (CAR FR) (SETQ N (+ N 1)))))))) "
-  "  (LIST 'CONST NIL))))) "
+  " (RETURN (LIST 'PROGN "
+  "  (LIST 'BLOCK "
+  "   (CONC (LIST 'PROGN) "
+  "    (C::INIT-CV-STACK ARGS CV)"
+  "    (C::INIT-COMMON-VARS ARGS COV) "
+  "    (C::INIT-SPECIAL-VARS ARGS SV)) "
+  "   (LIST 'SET-LOCAL 1 0) "  ;; $idx = 0
+  "   (LIST 'LOOP (CONS 'PROGN (MAPLIST FRAGMENTS (FUNCTION (LAMBDA (FR) "
+  "    (C::COMPILE-PROG-FRAGMENT FI ARGS (CAR FR) (SETQ N (+ N 1)))))))) "
+  "   (LIST 'CONST NIL)) "
+  "  (CONC (LIST 'PROGN) (C::CLEANUP-SPECIAL-VARS ARGS SV)))))) "
   "(DE C::TRANSFORM-COND (X) "  ;; X of (COND . X)
   " (IF (NULL X) "
   "  NIL"
