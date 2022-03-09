@@ -260,6 +260,10 @@ test_data.push([
     ["(null (get 'a 'common))", "NIL"],
     ["(uncommon '(a))", "NIL"],
     ["(get 'a 'common)", "NIL"],
+    ["(special '(a))", "NIL"],
+    ["(null (get 'a 'special))", "NIL"],
+    ["(unspecial '(a))", "NIL"],
+    ["(get 'a 'special)", "NIL"],
 
     // APVALs
     ["blank", " "],
@@ -604,4 +608,12 @@ test_data.push([
     ["((lambda (cov1) (cons (commonfn3) cov1)) 9)", "(11 . 11)"],
     ["(compile '(commonfn3))", "NIL"],
     ["((lambda (cov1) (cons (commonfn3) cov1)) 9)", "(11 . 11)"],
+
+    ["(special '(sv1))", "NIL"],
+    ["(defun specialfn () (* sv1 2))", "SPECIALFN"],
+    ["(defun specialfn2 (sv1) (specialfn))", "SPECIALFN2"],
+    ["(defun specialfn3 (sv1) (list (specialfn) (specialfn2 (1+ sv1)) sv1))",
+     "SPECIALFN3"],
+    ["(compile '(specialfn specialfn2 specialfn3))", "NIL"],
+    ["(specialfn3 2)", "(4 6 2)"],
 ]);

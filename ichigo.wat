@@ -5191,6 +5191,10 @@
   "  (IF V (RETURN (PROG2 (PRINT V) X)))))) "
   " (COMMON (LAMBDA (X) (FLAG X 'COMMON)))"  ;; Will be compiled
   " (UNCOMMON (LAMBDA (X) (REMFLAG X 'COMMON))) "  ;; Will be compiled
+  " (SPECIAL (LAMBDA (X) (MAP X (FUNCTION (LAMBDA (Y) "
+  "  (PUTPROP (CAR Y) (LIST NIL) 'SPECIAL)))))) "  ;; Will be compiled
+  " (UNSPECIAL (LAMBDA (X) (MAP X (FUNCTION (LAMBDA (Y) "
+  "  (REMPROP (CAR Y) 'SPECIAL)))))) "  ;; Will be compiled
   "))"
   "(DEFLIST '( "
   " (CSETQ (LAMBDA (S A) (CSET (CAR S) (EVAL (CAR (CDR S)) A)))) "
@@ -5388,13 +5392,16 @@
   "  ((EQ (CAR X) 'SET-LOCAL) (C::ASSEMBLE-SET-LOCAL (CDR X) L)) "
   "  ((EQ (CAR X) 'CALL) (C::ASSEMBLE-CALL (CDR X) L)) "
   "  ((EQ (CAR X) 'LOAD) (C::ASSEMBLE-LOAD (CDR X) L)) "
+  "  ((EQ (CAR X) 'STORE) (C::ASSEMBLE-STORE (CDR X) L)) "
   "  ((EQ (CAR X) 'PROGN) (C::ASSEMBLE-PROGN (CDR X) L)) "
+  "  ((EQ (CAR X) 'BLOCK) (C::ASSEMBLE-BLOCK (CDR X) L)) "
   "  ((EQ (CAR X) 'IF) (C::ASSEMBLE-IF (CDR X) L)) "
   "  ((EQ (CAR X) 'WHEN) (C::ASSEMBLE-WHEN (CDR X) L)) "
   "  ((EQ (CAR X) 'LOOP) (C::ASSEMBLE-LOOP (CDR X) L)) "
   "  ((EQ (CAR X) '<) (C::ASSEMBLE-LESS (CDR X) L)) "
   "  ((EQ (CAR X) 'RETURN) (C::ASSEMBLE-RETURN (CADR X) L)) "
-  "  ((EQ (CAR X) 'BR) (C::ASSEMBLE-BR (CDR X) L)) "
+  "  ((EQ (CAR X) 'BR-LOOP) (C::ASSEMBLE-BR-LOOP (CDR X) L)) "
+  "  ((EQ (CAR X) 'BR-BLOCK) (C::ASSEMBLE-BR-BLOCK (CDR X) L)) "
   "  (T (ERROR (SYMCAT (CAR X) '$$| is not asm opcode|))))) "
   "(DE C::ASSEMBLE-ATOM (X L) "
   " (COND "
@@ -5436,9 +5443,22 @@
   "   (C::ASSEMBLE-CODE (CAR Y) L)))) "
      ;; Load
   "  (LIST 0x28 0x02 0x00))) "  ;; align=2 (I'm not sure if it's necessary)
+  "(DE C::ASSEMBLE-STORE (X L) "  ;; X of (STORE . X=(CELL VAL))
+  " (NCONC "
+     ;; Push the address and value
+  "  (MAPCON X (FUNCTION (LAMBDA (Y) "
+  "   (C::ASSEMBLE-CODE (CAR Y) L)))) "
+     ;; Store
+  "  (LIST 0x36 0x02 0x00))) "  ;; align=2 (I'm not sure if it's necessary)
   "(DE C::ASSEMBLE-PROGN (X L) "  ;; X of (PROGN . X)
   " (MAPCON X (FUNCTION (LAMBDA (Y) "
   "   (C::ASSEMBLE-CODE (CAR Y) L))))) "
+  "(DE C::ASSEMBLE-BLOCK (X L) "  ;; X of (BLOCK . X)
+  " (CONC "
+  "  (LIST 0x02 0x7f)"  ;; block with i32
+  "  (MAPCON X (FUNCTION (LAMBDA (Y) "
+  "    (C::ASSEMBLE-CODE (CAR Y) (1+ L))))) "
+  "  (LIST 0x0b))) "
   "(DE C::ASSEMBLE-IF (X L) "  ;; X of (IF . X)
   " (CONC "
   "  (C::ASSEMBLE-CODE (CAR X) L) "
@@ -5475,13 +5495,15 @@
   " (CONC "
   "  (C::ASSEMBLE-CODE X L) "
   "  (LIST 0x0f))) "  ;; return
-  "(DE C::ASSEMBLE-BR (X L) "  ;; X of (BR . X=NIL)
-  "  (CONS 0x0c (LEB128 (1- L)))) "  ;; br
+  "(DE C::ASSEMBLE-BR-LOOP (X L) "  ;; X of (BR-LOOP . X=NIL)
+  "  (CONS 0x0c (LEB128 (- L 2)))) "  ;; br
+  "(DE C::ASSEMBLE-BR-BLOCK (X L) "  ;; X of (BR-BLOCK . X=NIL)
+  "  (CONS 0x0c (LEB128 (- L 1)))) "  ;; br
   "(DE C::COMPILE-ARG (N L) "
   " (IF (< N 4) "
   "  (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) (+ 11 N)) " ;; 11: getArgF1
   "  (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) N 15))) " ;; 15: getArgFN
-  "(DE C::COMPILE-APVAL (CELL L) "
+  "(DE C::COMPILE-APVAL (CELL) "
   " (LIST 'CALL 'I2I "
   "  (LIST 'LOAD (LIST 'CONST CELL)) "
   "  4))"  ;; 4: car
@@ -5490,12 +5512,17 @@
   "  (LIST 'CONST X) "
   "  (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) "  ;; 10: getAArgFInSubr
   "  25)) "  ;; 25: getVarInAlist
+  "(DE C::COMPILE-SPECIAL-VAR (CELL) "
+  " (LIST 'CALL 'I2I "
+  "  (LIST 'LOAD (LIST 'CONST CELL)) "
+  "  4))"  ;; 4: car
   "(DE C::COMPILE-ATOM (X ARGS) "
   " (COND "
   "  ((NULL X) (LIST 'CONST NIL)) "
   "  ((FIXP X) (LIST 'CONST X)) "
   "  ((GET X 'APVAL) (C::COMPILE-APVAL (PROP X 'APVAL))) "
   "  ((GET X 'COMMON) (C::COMPILE-GET-ALIST-VAR X)) "
+  "  ((GET X 'SPECIAL) (C::COMPILE-SPECIAL-VAR (PROP X 'SPECIAL))) "
   "  ((POSITION X ARGS) (C::COMPILE-ARG (POSITION X ARGS))) "
   "  ((SYMBOLP X) (C::COMPILE-GET-ALIST-VAR X)) "
   "  (T (ERROR (SYMCAT X '$$| is not supported atom|))))) "
@@ -5561,9 +5588,14 @@
   "  ((OR SB EX) "
   "   (C::COMPILE-FUNC-CALL SYM ARGS (LIST 'CONST (CAR X)) (CDR X))) "
      ;; Call local function if exists
-  "  ((AND (MEMBER (CAR X) ARGS) (NOT (GET (CAR X) 'COMMON))) "
+  "  ((AND (MEMBER (CAR X) ARGS) "
+  "    (NOT (GET (CAR X) 'COMMON)) (NOT (GET (CAR X) 'SPECIAL))) "
   "   (C::COMPILE-FUNC-CALL SYM ARGS "
   "    (C::COMPILE-ARG (POSITION (CAR X) ARGS)) (CDR X))) "
+     ;; Special variable
+  "  ((GET (CAR X) 'SPECIAL) "
+  "   (C::COMPILE-FUNC-CALL SYM ARGS "
+  "    (C::COMPILE-SPECIAL-VAR (PROP (CAR X) 'SPECIAL)) (CDR X))) "
      ;; Assume the function will be defined later
   "  (T (C::COMPILE-FUNC-CALL SYM ARGS (LIST 'CONST (CAR X)) (CDR X))))))) "
   "(DE C::COMPILE-IF-CALL (SYM ARG X) "  ;; X of (IF . X=(c th el))
@@ -5597,11 +5629,19 @@
   "(DE C::COMPILE-SETQ-CALL (SYM ARG X) (PROG (N)  "   ;; X of (SETQ . X)
   " (SETQ N (POSITION (CAR X) ARGS))"
   " (RETURN (COND "
+     ;; Set var in special cell
+  "  ((GET (CAR X) 'SPECIAL) "
+  "   (LIST 'PROGN "
+  "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARG (CADR X)) 1) "  ;; 1: push
+  "   (LIST 'STORE "
+  "    (LIST 'CALL 'I2I (LIST 'CONST (PROP (CAR X) 'SPECIAL)) 4) "  ;; 4: car
+  "    (LIST 'CALL 'V2I 7)) "  ;; 7: peek
+  "    (LIST 'CALL 'V2I 2))) "  ;; 2: pop (val)
+     ;; Set var in alist
   "  ((OR (NOT N) (GET (CAR X) 'COMMON)) "
-      ;; Set var in alist
   "   (LIST 'CALL 'III2I "
   "    (LIST 'CONST (CAR X)) "
-  "    (C::COMPILE-CODE SYM ARG (CADR X))"
+  "    (C::COMPILE-CODE SYM ARG (CADR X)) "
   "    (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) "  ;; 10: getAArgFInSubr
   "    28)) "  ;; 28: setVarInAlist
      ;; Set var in stack
@@ -5632,13 +5672,13 @@
   "(DE C::COMPILE-RETURN-CALL (FI ARG X) "   ;; X of (RETURN . X)
   " (IF (OR (ATOM FI) (NOT (EQ (CAR FI) 'PROG))) "
   "  (ERROR '$$|RETURN cannot be used outside PROG|) "
-  "  (LIST 'RETURN (C::COMPILE-CODE FI ARG (CAR X))))) "
+  "  (LIST 'PROGN (C::COMPILE-CODE FI ARG (CAR X)) (LIST 'BR-BLOCK)))) "
   "(DE C::COMPILE-GO-CALL (FI ARG X) "   ;; X of (GO . X=(label))
   " (IF (OR (ATOM FI) (NOT (EQ (CAR FI) 'PROG))) "
   "  (ERROR '$$|GO cannot be used outside PROG|) "
   "  (LIST 'PROGN "
   "   (LIST 'SET-LOCAL 1 (1+ (POSITION (CAR X) (CADR FI)))) "
-  "   (LIST 'BR)))) "
+  "   (LIST 'BR-LOOP)))) "
   "(DE C::COMPILE-SPECIAL-CALL (SYM ARG X) "
   " (COND "
   "  ((EQ (CAR X) 'IF) (C::COMPILE-IF-CALL SYM ARG (CDR X))) "
@@ -5692,9 +5732,9 @@
   "   (+ 31 N)) "  ;; 31: setArgF1
   "  (LIST 'CALL 'III2V "
   "   (LIST 'GET-LOCAL 0) "
+  "   N"
   "   (LIST 'CALL 'II2I (LIST 'CONST 'C::VCTAG) "
   "    (LIST 'CALL 'II2I (LIST 'CONST V) (C::COMPILE-ARG N) 6) 6) "  ;; 6: cons
-  "   N"
   "   35))) "  ;; 35: setArgFN
   "(DE C::INIT-CV-STACK (ARGS CV) "
   " (MAPLIST CV (FUNCTION (LAMBDA (Y) "
@@ -5729,14 +5769,44 @@
   "     6) "  ;; 6: cons
   "    30) "  ;; 30: setAArgFInSubr
   "   (C::INIT-COMMON-VARS ARGS (CDR COV))))) "
-  "(DE C::COMPILE-FUNC (SYM ARGS EXP) (PROG (CV COV) "
+  "(DE C::INIT-SPECIAL-VARS (ARGS SV) "
+  " (IF (NULL SV)"
+  "  NIL "
+  "  (CONS "
+  "   (LIST 'PROGN "
+  "    (LIST 'CALL 'I2V (C::COMPILE-SPECIAL-VAR (PROP (CAR SV) 'SPECIAL)) 1) "
+  "    (LIST 'CALL 'I2V (C::COMPILE-ARG (POSITION (CAR SV) ARGS)) 1) "
+  "    (LIST 'STORE "
+  "     (LIST 'CALL 'I2I (LIST 'CONST (PROP (CAR SV) 'SPECIAL)) 4) "  ;; 4: car
+  "     (LIST 'CALL 'V2I 2)) "  ;; 2: pop (args)
+       ;; TODO: make a utility function for set argument
+  "    (LIST 'CALL 'III2V "
+  "     (LIST 'GET-LOCAL 0) (POSITION (CAR SV) ARGS) "
+  "     (LIST 'CALL 'V2I 2) "  ;; 2: pop (special)
+  "     35)) "  ;; 35: setArgFN
+  "   (C::INIT-SPECIAL-VARS ARGS (CDR SV))))) "
+  "(DE C::CLEANUP-SPECIAL-VARS (ARGS SV) "
+  " (IF (NULL SV)"
+  "  NIL "
+  "  (CONS "
+  "   (LIST 'PROGN "
+  "    (LIST 'CALL 'I2V (C::COMPILE-ARG (POSITION (CAR SV) ARGS)) 1) "
+  "    (LIST 'STORE "
+  "     (LIST 'CALL 'I2I (LIST 'CONST (PROP (CAR SV) 'SPECIAL)) 4) "  ;; 4: car
+  "     (LIST 'CALL 'V2I 2))) "  ;; 2: pop (args)
+  "   (C::CLEANUP-SPECIAL-VARS ARGS (CDR SV))))) "
+  "(DE C::COMPILE-FUNC (SYM ARGS EXP) (PROG (CV COV SV) "
   " (SETQ CV (C::CAPTURED-VARS ARGS EXP)) "
   " (SETQ COV (REMOVE-IF-NOT (FUNCTION (LAMBDA (X) (GET X 'COMMON))) ARGS)) "
+  " (SETQ SV (REMOVE-IF-NOT (FUNCTION (LAMBDA (X) (GET X 'SPECIAL))) ARGS)) "
   " (RETURN "
-  "  (CONC (LIST 'PROGN) "
-  "   (C::INIT-CV-STACK ARGS CV) "
-  "   (C::INIT-COMMON-VARS ARGS COV) "
-  "   (LIST (C::COMPILE-CODE SYM ARGS (C::REPLACE-CV-REF ARGS EXP CV))))))) "
+  "  (LIST 'PROGN "
+  "   (CONC (LIST 'BLOCK) "
+  "    (C::INIT-CV-STACK ARGS CV) "
+  "    (C::INIT-COMMON-VARS ARGS COV) "
+  "    (C::INIT-SPECIAL-VARS ARGS SV) "
+  "    (LIST (C::COMPILE-CODE SYM ARGS (C::REPLACE-CV-REF ARGS EXP CV)))) "
+  "   (CONC (LIST 'PROGN) (C::CLEANUP-SPECIAL-VARS ARGS SV)))))) "
   "(DE C::COMPILE-PROG-CODE (FI ARGS EXP) (PROG (ASM) "
   " (IF (ATOM EXP) (RETURN (LIST 'PROG))) "  ;; Return nop for a label
   " (SETQ ASM (C::COMPILE-CODE FI ARGS EXP)) "
@@ -5766,7 +5836,7 @@
   " (SETQ FRAGMENTS (MAPLIST (CONS NIL (CADR FI)) (FUNCTION (LAMBDA (X) "
   "  (C::GET-PROG-FRAGMENT-AFTER (CAR X) BODY))))) "
   " (SETQ N 0) "
-  " (RETURN (LIST 'PROGN "
+  " (RETURN (LIST 'BLOCK "
   "  (CONS 'PROGN ST) "  ;; initialize stack if necessary
   "  (LIST 'SET-LOCAL 1 0) "  ;; $idx = 0
   "  (LIST 'LOOP (CONS 'PROGN (MAPLIST FRAGMENTS (FUNCTION (LAMBDA (FR) "
@@ -5824,7 +5894,8 @@
   "(DE C::CAPTURED-VARS (ARGS EXP) "
   " (REMOVE-DUPLICATES ((LABEL REC (LAMBDA (ARGS E INL) "
   "  (COND"
-  "   ((ATOM E) (IF (AND INL (MEMBER E ARGS)) (LIST E) NIL)) "
+  "   ((ATOM E) (IF (AND INL (MEMBER E ARGS) (NOT (GET E 'COMMON)) "
+  "     (NOT (GET E 'SPECIAL))) (LIST E) NIL)) "
   "   ((EQ (CAR E) 'QUOTE) NIL) "
   "   ((EQ (CAR E) 'LAMBDA) "
   "    (REC "
@@ -5884,6 +5955,7 @@
   " ) (FUNCTION (LAMBDA (X) (REMOB (CAR X))))) "
   " (COMPILE '(NOT CAAR CADR CDAR CDDR SCAR SCDR CONSP SYMBOLP)) "
   " (COMPILE '(COMMON UNCOMMON)) "
+  " (COMPILE '(SPECIAL UNSPECIAL)) "
   ;; Greeting
   "(PRINT '$$|\F0\9F\8D\93 Ichigo Lisp version 0.0.1 powered by WebAssembly|) "
   "(PRINT '$$|\F0\9F\8D\93 Enjoy LISP 1.5(-ish) programming|) "
