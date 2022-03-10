@@ -625,4 +625,18 @@ test_data.push([
      "SPPROGFN3"],
     ["(compile '(spprogfn spprogfn2 spprogfn3))", "NIL"],
     ["(spprogfn3 2)", "(4 6 2)"],
+
+    ["(df quoteff (s a) (car s)) ", "QUOTEFF"],
+    ["(compile '(quoteff))", "NIL"],
+    ["(quoteff (a b c))", "(A B C)"],
+
+    ["(df evalff (s a) (eval (car s) a)) ", "EVALFF"],
+    ["(compile '(evalff))", "NIL"],
+    ["(evalff (+ 1 2))", "3"],
+
+    ["(df ifff (s a) (if (eval (car s) a) (eval (cadr s) a) " +
+     "(eval (car (cddr s)) a))) ", "IFFF"],
+    ["(compile '(ifff))", "NIL"],
+    ["((lambda (x) (ifff (onep (setq x (1+ x))) (setq x (* x 8)) x)) 0)", "8"],
+    ["((lambda (x) (ifff (onep (setq x (1+ x))) (setq x (* x 2)) x)) 1)", "2"],
 ]);

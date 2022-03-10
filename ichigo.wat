@@ -677,6 +677,7 @@
  (elem (i32.const 26) $createLabelFunarg)  ;; iii2i
  (elem (i32.const 27) $apvalSet)  ;; ii2i
  (elem (i32.const 28) $setVarInAlist)  ;; ii2i
+ (elem (i32.const 29) $createSubrStackFromFsubrStack)  ;; i2v
 
  (elem (i32.const 30) $setAArgFInSubr)  ;; ii2i
  (elem (i32.const 31) $setArgF1)  ;; ii2v
@@ -684,6 +685,10 @@
  (elem (i32.const 33) $setArgF3)  ;; ii2v
  (elem (i32.const 34) $setArgF4)  ;; ii2v
  (elem (i32.const 35) $setArgFN)  ;; iii2v
+
+ (elem (i32.const 40) $cleanupSubrStackFromFsubrStack)  ;; i2v
+
+ (elem (i32.const 99) $log)  ;; i2v
 
  (func $getsp (result i32)
        (global.get $sp))
@@ -2121,6 +2126,22 @@
              (local.get $obj) (local.get $val) (global.get $sym_apval))
        (local.get $val))
 
+ (func $createSubrStackFromFsubrStack (param $fmp i32)
+       (call $push (call $getAArgF (local.get $fmp)))  ;; arg a
+       (call $push (call $cdr (call $getEArgF (local.get $fmp))))  ;; arg 1
+       (call $push (call $getAArgF (local.get $fmp)))  ;; arg 2
+       (call $push (i32.const 0))  ;; arg 3
+       (call $push (i32.const 0)))  ;; arg 4
+
+ (func $cleanupSubrStackFromFsubrStack (param $fmp i32)
+       (if (i32.ne (local.get $fmp) (global.get $sp))
+           (then
+            (call $log (i32.const 555000001))
+            (call $log (global.get $sp))
+            (call $log (local.get $fmp))
+            (unreachable)))
+       (global.set $sp (i32.sub (global.get $sp) (i32.const 20))))
+
  ;;; All arguments must be protected from GC
  (func $pairlis (param $x i32) (param $y i32) (param $z i32) (result i32)
        (local $tmp i32)
@@ -3111,11 +3132,16 @@
  (func $getAArgInSubr (result i32)
        (call $getAArgFInSubr (global.get $sp)))
 
+ (func $getEArgF (param $fmp i32) (result i32)
+      (i32.load (i32.sub (local.get $fmp) (i32.const 8))))
+ (func $getAArgF (param $fmp i32) (result i32)
+      (i32.load (i32.sub (local.get $fmp) (i32.const 4))))
+
  ;;; Returns the arguments from FSUBR stack
  (func $getEArg (result i32)
-      (i32.load (i32.sub (global.get $sp) (i32.const 8))))
+       (call $getEArgF (global.get $sp)))
  (func $getAArg (result i32)
-      (i32.load (i32.sub (global.get $sp) (i32.const 4))))
+       (call $getAArgF (global.get $sp)))
 
  (func $setArgF1 (param $fmp i32) (param $val i32)
        (i32.store (i32.sub (local.get $fmp) (i32.const 16)) (local.get $val)))
@@ -4003,13 +4029,21 @@
        (local.set $arg2 (call $getArg2))
        (call $get (local.get $arg1) (local.get $arg2)))
 
- ;;; EVAL and APPLY shouldn't called. Actual code is embedded in $eval.
+ ;;; EVAL and APPLY are called from only compiled code.
  (func $subr_eval (result i32)
-       (unreachable)
-       (i32.const 0))
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (call $eval (local.get $arg1) (local.get $arg2)))
  (func $subr_apply (result i32)
-       (unreachable)
-       (i32.const 0))
+       (local $arg1 i32)
+       (local $arg2 i32)
+       (local $arg3 i32)
+       (local.set $arg1 (call $getArg1))
+       (local.set $arg2 (call $getArg2))
+       (local.set $arg3 (call $getArg3))
+       (call $apply (local.get $arg1) (local.get $arg2) (local.get $arg3)))
 
  (func $subr_advance (result i32)
        (local $c i32)
@@ -5807,6 +5841,19 @@
   "     (LIST 'CALL 'I2I (LIST 'CONST (PROP (CAR SV) 'SPECIAL)) 4) "  ;; 4: car
   "     (LIST 'CALL 'V2I 2))) "  ;; 2: pop (args)
   "   (C::CLEANUP-SPECIAL-VARS ARGS (CDR SV))))) "
+  "(DE C::INIT-FSUBR-STACK (FI) "
+  " (IF (OR (ATOM FI) (NOT (EQ (CAR FI) 'FEXPR))) "
+  "  NIL "
+     ;; 29: createSubrStackFromFsubrStack
+  "  (LIST (LIST 'CALL 'I2V (LIST 'GET-LOCAL 0) 29) "
+  "   (LIST 'SET-LOCAL 0 (LIST 'CALL 'V2I 0))))) "  ;; 0: getSp
+  "(DE C::CLEANUP-FSUBR-STACK (FI) "
+  " (IF (OR (ATOM FI) (NOT (EQ (CAR FI) 'FEXPR))) "
+  "  NIL "
+     ;; 40: cleanupSubrStackFromFsubrStack
+  "  (LIST (LIST 'CALL 'I2V (LIST 'GET-LOCAL 0) 40) "
+      ;; Don't need to eval return value
+  "   (LIST 'CALL 'I2V 0 1)))) "
   "(DE C::COMPILE-FUNC (SYM ARGS EXP) (PROG (CV COV SV) "
   " (SETQ CV (C::CAPTURED-VARS ARGS EXP)) "
   " (SETQ COV (REMOVE-IF-NOT (FUNCTION (LAMBDA (X) (GET X 'COMMON))) ARGS)) "
@@ -5814,11 +5861,17 @@
   " (RETURN "
   "  (LIST 'PROGN "
   "   (CONC (LIST 'BLOCK) "
+       ;; Initialization
+  "    (C::INIT-FSUBR-STACK SYM)"
   "    (C::INIT-CV-STACK ARGS CV) "
   "    (C::INIT-COMMON-VARS ARGS COV) "
   "    (C::INIT-SPECIAL-VARS ARGS SV) "
+       ;; Body
   "    (LIST (C::COMPILE-CODE SYM ARGS (C::REPLACE-CV-REF ARGS EXP CV)))) "
-  "   (CONC (LIST 'PROGN) (C::CLEANUP-SPECIAL-VARS ARGS SV)))))) "
+      ;; Cleanup
+  "   (CONC (LIST 'PROGN) "
+  "    (C::CLEANUP-SPECIAL-VARS ARGS SV) "
+  "    (C::CLEANUP-FSUBR-STACK SYM)))))) "
   "(DE C::COMPILE-PROG-CODE (FI ARGS EXP) (PROG (ASM) "
   " (IF (ATOM EXP) (RETURN (LIST 'PROG))) "  ;; Return nop for a label
   " (SETQ ASM (C::COMPILE-CODE FI ARGS EXP)) "
@@ -5929,9 +5982,12 @@
   "  (ERROR (SYMCAT SYM '$$| is not a lambda|))) "
   " )) "
   "(CSETQ *COMPILED-EXPRS* NIL) "
+  "(CSETQ *COMPILED-FEXPRS* NIL) "
   "(DE EVAL-ENTER-HOOK () (PROG ()"
   " (MAP *COMPILED-EXPRS* (FUNCTION (LAMBDA (X) (REMPROP (CAR X) 'EXPR)))) "
+  " (MAP *COMPILED-FEXPRS* (FUNCTION (LAMBDA (X) (REMPROP (CAR X) 'FEXPR)))) "
   " (CSETQ *COMPILED-EXPRS* NIL) "
+  " (CSETQ *COMPILED-FEXPRS* NIL) "
   "))"
   "(DE C::GET-LABELS (BODY) "
   " (MAPCON BODY (FUNCTION (LAMBDA (X) "
@@ -5954,15 +6010,22 @@
   " (C::ASSEMBLE ASM) "
   " (SETQ OBJS (C::GET-CONSTS ASM)) "
   " (RETURN (CONS (LOAD-WASM) OBJS)))) "
-  "(DE C::COMPILE1 (SYM) (PROG (FN IDX-OBJ) "
-  " (SETQ FN (GET SYM 'EXPR)) "  ;; TODO: Support FEXPR
-  " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR|))) "
-  " (SETQ IDX-OBJ (C::COMPILE-LAMBDA SYM FN)) "
-  " (PUTPROP SYM (LIST (CAR IDX-OBJ) (LENGTH (CADR FN)) (CDR IDX-OBJ)) 'SUBR) "
+  "(DE C::COMPILE1 (SYM) (PROG (FE FN IDX-OBJ) "
+  " (SETQ FE (GET SYM 'FEXPR)) "
+  " (IF FE "
+  "  (SETQ FN FE) "
+  "  (SETQ FN (GET SYM 'EXPR))) "
+  " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR or FEXPR|))) "
+  " (SETQ IDX-OBJ (C::COMPILE-LAMBDA (IF FE (LIST 'FEXPR SYM) SYM) FN)) "
+  " (IF FE"
+  "  (PUTPROP SYM (CAR IDX-OBJ) 'FSUBR) "  ;; TODO: Keep OBJ
+  "  (PUTPROP SYM (LIST (CAR IDX-OBJ) (LENGTH (CADR FN)) (CDR IDX-OBJ)) 'SUBR)) "
+  "  (IF FE (PUTPROP SYM (CDR IDX-OBJ) 'OBJ)) "
     ;; Remove EXPR later because WebAssembly modules are actually loaded
     ;; after all functions returned.
-    ;; TODO: Support FEXPR
-  " (CSETQ *COMPILED-EXPRS* (CONS SYM *COMPILED-EXPRS*)) "
+  " (IF FE"
+  "  (CSETQ *COMPILED-FEXPRS* (CONS SYM *COMPILED-FEXPRS*)) "
+  "  (CSETQ *COMPILED-EXPRS* (CONS SYM *COMPILED-EXPRS*))) "
   " )) "
   "(DE COMPILE (LST) "
   " (MAP LST (FUNCTION (LAMBDA (X) (C::COMPILE1 (CAR X))))))"
