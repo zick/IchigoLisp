@@ -568,6 +568,11 @@ test_data.push([
     ["(compile '(progfn))", "NIL"],
     ["(progfn)", "2"],
 
+    ["(defun returnfn() (prog () (+ 1 2 (return 3))))", "RETURNFN"],
+    ["(returnfn)", "3"],
+    ["(compile '(returnfn))", "NIL"],
+    ["(returnfn)", "3"],
+
     ["(defun gofn() (prog () (go l3) l1 (return 1) l2 (return 2) l3 (go l1)))",
      "GOFN"],
     ["(gofn)", "1"],

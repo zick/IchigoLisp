@@ -687,11 +687,14 @@
  (elem (i32.const 35) $setArgFN)  ;; iii2v
 
  (elem (i32.const 40) $cleanupSubrStackFromFsubrStack)  ;; i2v
+ (elem (i32.const 41) $setsp)  ;; i2v
 
  (elem (i32.const 99) $log)  ;; i2v
 
  (func $getsp (result i32)
        (global.get $sp))
+ (func $setsp (param $v i32)
+       (global.set $sp (local.get $v)))
  (func $push (param $val i32)
        (i32.store (global.get $sp) (local.get $val))
        (global.set $sp (i32.add (global.get $sp) (i32.const 4))))
@@ -5856,6 +5859,10 @@
   "  (LIST (LIST 'CALL 'I2V (LIST 'GET-LOCAL 0) 40) "
       ;; Don't need to eval return value
   "   (LIST 'CALL 'I2V 0 1)))) "
+  "(DE C::RESTORE-SP (FI)"
+  " (IF (AND (CONSP FI) (EQ (CAR FI) 'FEXPR)) "
+  "  NIL"
+  "  (LIST (LIST 'CALL 'I2V (LIST 'GET-LOCAL 0) 41)))) "  ;; 41: setsp
   "(DE C::COMPILE-FUNC (SYM ARGS EXP) (PROG (CV COV SV) "
   " (SETQ CV (C::CAPTURED-VARS ARGS EXP)) "
   " (SETQ COV (REMOVE-IF-NOT (FUNCTION (LAMBDA (X) (GET X 'COMMON))) ARGS)) "
@@ -5873,7 +5880,8 @@
       ;; Cleanup
   "   (CONC (LIST 'PROGN) "
   "    (C::CLEANUP-SPECIAL-VARS ARGS SV) "
-  "    (C::CLEANUP-FSUBR-STACK SYM)))))) "
+  "    (C::CLEANUP-FSUBR-STACK SYM) "
+  "    (C::RESTORE-SP SYM)))))) "
   "(DE C::COMPILE-PROG-CODE (FI ARGS EXP) (PROG (ASM) "
   " (IF (ATOM EXP) (RETURN (LIST 'PROG))) "  ;; Return nop for a label
   " (SETQ ASM (C::COMPILE-CODE FI ARGS EXP)) "
