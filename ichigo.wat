@@ -2302,7 +2302,7 @@
                 $ret
                 (call_indirect
                  (type $fsubr_type)
-                 (call $fixnum2int (local.get $tmp))))
+                 (call $fixnum2int (call $car (local.get $tmp)))))
                ;; Check whether the return value should be evaluated
                (if (i32.ne (call $pop) (i32.const 0))
                    (then  ;; need to evaluate return value
@@ -2751,6 +2751,15 @@
                    (call $cons
                          (call $int2fixnum (local.get $num_args))
                          (i32.const 0)))))
+ ;; Creates a symbol with FSUBR.
+ ;; This function doesn't care GC
+ (func $initsymFsubr (param $sym i32) (param $str i32) (param $idx i32)
+       (call $initsymKv
+             (local.get $sym) (local.get $str)
+             (global.get $sym_fsubr)
+             (call $cons
+                   (call $int2fixnum (local.get $idx))
+                   (i32.const 0))))
 
  (func $init
        (call $setcar (global.get $oblist_cell) (i32.const 0))
@@ -2988,83 +2997,69 @@
              (global.get $idx_bstart) (i32.const 0))
 
        ;;; FSUBR
-       (call $initsymKv
+       (call $initsymFsubr
              (global.get $sym_list) (global.get $str_list)
-             (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_list)))
-       (call $initsymKv
+             (global.get $idx_list))
+       (call $initsymFsubr
              (global.get $sym_if) (global.get $str_if)
-             (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_if)))
-       (call $initsymKv
+             (global.get $idx_if))
+       (call $initsymFsubr
              (global.get $sym_quote) (global.get $str_quote)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_quote)))
-       (call $initsymKv
+             (global.get $idx_quote))
+       (call $initsymFsubr
              (global.get $sym_plus) (global.get $str_plus)
-             (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_plus)))
-       (call $initsymKv
+             (global.get $idx_plus))
+       (call $initsymFsubr
              (global.get $sym_plus_sign) (global.get $str_plus_sign)
-             (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_plus)))
-       (call $initsymKv
+             (global.get $idx_plus))
+       (call $initsymFsubr
              (global.get $sym_prog) (global.get $str_prog)
-             (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_prog)))
-       (call $initsymKv
+             (global.get $idx_prog))
+       (call $initsymFsubr
              (global.get $sym_go) (global.get $str_go)
-             (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_go)))
-       (call $initsymKv
+             (global.get $idx_go))
+       (call $initsymFsubr
              (global.get $sym_setq) (global.get $str_setq)
-             (global.get $sym_fsubr) (call $int2fixnum (global.get $idx_setq)))
-       (call $initsymKv
+             (global.get $idx_setq))
+       (call $initsymFsubr
              (global.get $sym_star_sign) (global.get $str_star_sign)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_times)))
-       (call $initsymKv
+             (global.get $idx_times))
+       (call $initsymFsubr
              (global.get $sym_times) (global.get $str_times)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_times)))
-       (call $initsymKv
+             (global.get $idx_times))
+       (call $initsymFsubr
              (global.get $sym_cond) (global.get $str_cond)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_cond)))
-       (call $initsymKv
+             (global.get $idx_cond))
+       (call $initsymFsubr
              (global.get $sym_function) (global.get $str_function)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_function)))
-       (call $initsymKv
+             (global.get $idx_function))
+       (call $initsymFsubr
              (global.get $sym_label) (global.get $str_label)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_label)))
-       (call $initsymKv
+             (global.get $idx_label))
+       (call $initsymFsubr
              (global.get $sym_and) (global.get $str_and)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_and)))
-       (call $initsymKv
+             (global.get $idx_and))
+       (call $initsymFsubr
              (global.get $sym_or) (global.get $str_or)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_or)))
-       (call $initsymKv
+             (global.get $idx_or))
+       (call $initsymFsubr
              (global.get $sym_logand) (global.get $str_logand)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_logand)))
-       (call $initsymKv
+             (global.get $idx_logand))
+       (call $initsymFsubr
              (global.get $sym_logor) (global.get $str_logor)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_logor)))
-       (call $initsymKv
+             (global.get $idx_logor))
+       (call $initsymFsubr
              (global.get $sym_logxor) (global.get $str_logxor)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_logxor)))
-       (call $initsymKv
+             (global.get $idx_logxor))
+       (call $initsymFsubr
              (global.get $sym_max) (global.get $str_max)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_max)))
-       (call $initsymKv
+             (global.get $idx_max))
+       (call $initsymFsubr
              (global.get $sym_min) (global.get $str_min)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_min)))
-       (call $initsymKv
+             (global.get $idx_min))
+       (call $initsymFsubr
              (global.get $sym_time) (global.get $str_time)
-             (global.get $sym_fsubr)
-             (call $int2fixnum (global.get $idx_time)))
+             (global.get $idx_time))
 
        ;; APVAL
        (call $initsymKv
@@ -5605,7 +5600,7 @@
      ;; Push alist (22: createAlistFromStack)
   "  (LIST (LIST 'CALL 'I2V "
   "   (LIST 'CALL 'II2I (LIST 'GET-LOCAL 0) (LIST 'CONST ARGS) 22) 1)) "
-  "  (LIST (LIST 'CALL 'I2I FS 23)))) "  ;; 23: fsubrCall
+  "  (LIST (LIST 'CALL 'I2I (CAR FS) 23)))) "  ;; 23: fsubrCall
   "(DE C::COMPILE-FEXPR-CALL (SYM ARGS FE E) "
   " (CONC "
   "  (LIST 'PROGN) "
@@ -6018,9 +6013,8 @@
   " (IF (NULL FN) (ERROR (SYMCAT SYM '$$| does not have EXPR or FEXPR|))) "
   " (SETQ IDX-OBJ (C::COMPILE-LAMBDA (IF FE (LIST 'FEXPR SYM) SYM) FN)) "
   " (IF FE"
-  "  (PUTPROP SYM (CAR IDX-OBJ) 'FSUBR) "  ;; TODO: Keep OBJ
+  "  (PUTPROP SYM (LIST (CAR IDX-OBJ) (CDR IDX-OBJ)) 'FSUBR) "
   "  (PUTPROP SYM (LIST (CAR IDX-OBJ) (LENGTH (CADR FN)) (CDR IDX-OBJ)) 'SUBR)) "
-  "  (IF FE (PUTPROP SYM (CDR IDX-OBJ) 'OBJ)) "
     ;; Remove EXPR later because WebAssembly modules are actually loaded
     ;; after all functions returned.
   " (IF FE"
