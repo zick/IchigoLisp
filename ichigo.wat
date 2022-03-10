@@ -1987,6 +1987,7 @@
  (func $exprCall (param $fn i32) (param $narg i32) (result i32)
        (local $aarg i32)
        (local $alist i32)
+       (local $newa i32)
        (local.set $aarg (call $checkFuncCallStack (local.get $narg)))
        (if (i32.ne (local.get $aarg) (i32.const 0))
            (return (local.get $aarg)))
@@ -1999,15 +2000,21 @@
             (local.set $narg (i32.sub (local.get $narg) (i32.const 1)))
             (br $loop)))
        (local.set $alist (call $pop))
+       (call $push (local.get $fn))  ;; For GC (fn)
+       (call $push (local.get $aarg))  ;; For GC (fn aarg)
+       (call $push (local.get $alist))  ;; For GC (fn aarg alist)
+       (local.set $newa (call
+                         $pairlis
+                         (call $cadr (local.get $fn))
+                         (local.get $aarg)
+                         (local.get $alist)))
+       (call $drop (call $pop))  ;; For GC (fn aarg)
+       (call $drop (call $pop))  ;; For GC (fn)
+       (call $drop (call $pop))  ;; For GC ()
        (call
         $eval
         (call $car (call $cddr (local.get $fn)))
-        ;; TODO: make sure $fn is protected from GC
-        (call
-         $pairlis
-         (call $cadr (local.get $fn))
-         (local.get $aarg)
-         (local.get $alist))))
+        (local.get $newa)))
  (func $funcCall (param $fn i32) (param $narg i32) (result i32)
        (local $a i32)
        (local $tmp i32)
