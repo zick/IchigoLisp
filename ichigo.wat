@@ -5820,6 +5820,8 @@
   "  ((EQ (CAR EXP) 'QUOTE) EXP) "
   "  ((EQ (CAR EXP) 'LAMBDA) EXP) "
   "  ((EQ (CAR EXP) 'PROG) EXP) "
+  "  ((EQ (CAR EXP) 'IF) (CONS 'IF (C::REPLACE-CV-REF ARGS (CDR EXP) CV))) "
+     ;; Especially for FUNCTION, GO, LABEL, TIME
   "  ((GET (CAR EXP) 'FSUBR) EXP) "
   "  ((GET (CAR EXP) 'FEXPR) EXP) "
   "  (T (CONS (C::REPLACE-CV-REF ARGS (CAR EXP) CV) "
