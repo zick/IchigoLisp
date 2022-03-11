@@ -1,11 +1,11 @@
 var modules = [];
 var last_output = '';
-var memory = new WebAssembly.Memory({initial: 6});
+var memory = new WebAssembly.Memory({initial: 8});
 var importObject = {
     js: {
         memory: memory,
         table : new WebAssembly.Table(
-            {initial: 512, element: 'anyfunc'}),
+            {initial: 1024, element: 'anyfunc'}),
     },
     console: {
         log: function(arg) {
