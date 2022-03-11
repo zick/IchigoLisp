@@ -1928,7 +1928,7 @@
           (if (i32.eq (local.get $narg) (i32.const 3))
               (return))
           (local.set $arg4 (call $pop))
-          (local.set $arg4 (call $cons (local.get $arg4) (call $pop)))
+          (local.set $arg4 (call $cons (call $pop) (local.get $arg4)))
           (call $push (local.get $arg4))
           (local.set $narg (i32.sub (local.get $narg) (i32.const 1)))
           (br $poplp)))
