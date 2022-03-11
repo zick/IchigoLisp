@@ -3432,6 +3432,8 @@
  (global $idx_time i32 (i32.const 211))
  (elem (i32.const 212) $subr_bstart)
  (global $idx_bstart i32 (i32.const 212))
+ (elem (i32.const 213) $subr_verbose)
+ (global $idx_verbose i32 (i32.const 213))
 
  (func $subr_car (result i32)
        (local $arg1 i32)
@@ -5211,6 +5213,14 @@
    (func $subr_bstart (result i32)
          (global.set $bwritep (global.get $bwrite_start))
          (i32.const 0))
+
+   (func $subr_verbose (result i32)
+         (local $arg1 i32)
+         (local.set $arg1 (call $getArg1))
+         (if (i32.eqz (local.get $arg1))
+             (global.set $suppress_gc_msg (i32.const 1))
+             (global.set $suppress_gc_msg (i32.const 0)))
+         (i32.const 0))
  ;;; END SUBR/FSUBR
 
  ;;; EXPR/FEXPR/APVAL
@@ -5306,6 +5316,8 @@
   " (REMOVE-DUPLICATES (LAMBDA (X) (COND ((NULL X) NIL) "
   "  ((MEMBER (CAR X) (CDR X)) (REMOVE-DUPLICATES (CDR X))) "
   "  (T (CONS (CAR X) (REMOVE-DUPLICATES (CDR X))))))) "
+  " (VERBOSE (LAMBDA (X) ((SUBR 213) X)))  "
+  " (ASSOC (LAMBDA (K A) (SASSOC K A '(LAMBDA () NIL))))  "
   ")) "
   ;; Compiler
   ;; https://en.wikipedia.org/wiki/LEB128
@@ -6068,6 +6080,7 @@
   "(COMPILE '(COMMON UNCOMMON)) "
   "(COMPILE '(SPECIAL UNSPECIAL)) "
   "(DE COMPILE-COMPILER () (PROG ()"
+  " (VERBOSE NIL)"
   " (COMPILE '(ULEB128 LEB128 C::WASM-HEADER)) "
   " (COMPILE '(C::TYPE-SECTION)) "  ;; This requires many cells...
   " (COMPILE '(C::IMPORT-SECTION C::FUNC-SECTION C::ELM-SECTION)) "
@@ -6111,6 +6124,7 @@
   " (COMPILE '(C::VERIFY0 EVAL-ENTER-HOOK C::GET-LABELS C::COMPILE-PROG)) "
   " (COMPILE '(C::COMPILE-LAMBDA C::COMPILE1)) "
   " (COMPILE '(COMPILE)) "
+  " (VERBOSE T)"
   " ))"
   "(MAP '( "
   " PLUS2 TIMES2 MAX2 MIN2 LOGAND2 LOGOR2 LOGXOR2 "
@@ -6143,7 +6157,7 @@
   " C::VCTAG "
   " ) (FUNCTION (LAMBDA (X) (REMOB (CAR X))))) "
   ;; Greeting
-  "(PRINT '$$|\F0\9F\8D\93 Ichigo Lisp version 0.0.1 powered by WebAssembly|) "
+  "(PRINT '$$|\F0\9F\8D\93 Ichigo Lisp version 0.1.0 powered by WebAssembly|) "
   "(PRINT '$$|\F0\9F\8D\93 Enjoy LISP 1.5(-ish) programming|) "
   "(RECLAIM)"
   "STOP "  ;; END OF EXPR/FEXPR/APVAL

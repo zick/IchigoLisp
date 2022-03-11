@@ -22,6 +22,10 @@ A
 200
 500
 NIL
+> (compile '(fact))
+NIL
+> (fact 10)
+3628800
 ```
 
 For running locally:
@@ -33,7 +37,8 @@ For running locally:
 ## Supported Features
 Ichigo Lisp supports most of features written in
 [LISP 1.5 Programmer's Manual](http://www.softwarepreservation.org/projects/LISP/book/LISP%201.5%20Programmers%20Manual.pdf/view)
-except compiler, array, and floating point number.
+except array and floating point number.
+COMPILE generates WebAssembly binaries.
 Some functions behave differently from LISP 1.5.
 For example `COND` returns NIL when no conditions are satisfied while LISP 1.5
 returns an error in that case.
@@ -52,6 +57,8 @@ You can check the latest status by evaluating `(symbols-with 'subr)`.
 - CAR
 - CDR
 - CLEARBUFF
+- COMMON
+- COMPILE
 - CONS
 - COPY
 - COUNT
@@ -115,13 +122,16 @@ You can check the latest status by evaluating `(symbols-with 'subr)`.
 - SEARCH
 - SET
 - SPEAK
+- SPECIAL
 - STARTREAD
 - SUB1
 - SUBLIS
 - SUBST
 - TERPRI
+- UNCOMMON
 - UNCOUNT
 - UNPACK
+- UNSPECIAL
 - ZEROP
 
 #### Non-LISP 1.5 SUBRs
@@ -135,8 +145,6 @@ You can check the latest status by evaluating `(symbols-with 'subr)`.
 
 #### Unsupported SUBRs
 - ARRAY
-- COMMON
-- COMPILE
 - CP1
 - ERROR1
 - EXCISE
@@ -145,10 +153,7 @@ You can check the latest status by evaluating `(symbols-with 'subr)`.
 - PAUSE
 - PLB
 - READLAP
-- SPECIAL
 - TEMPUS-FUGIT
-- UNCOMMON
-- UNSPECIAL
 
 ### FSUBR
 FSUBRs are functions, that don't evaluate arguments,  written in WebAssembly.
