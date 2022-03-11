@@ -688,6 +688,7 @@
 
  (elem (i32.const 40) $cleanupSubrStackFromFsubrStack)  ;; i2v
  (elem (i32.const 41) $setsp)  ;; i2v
+ (elem (i32.const 42) $errorp)  ;; i2i
 
  (elem (i32.const 99) $log)  ;; i2v
 
@@ -5290,8 +5291,8 @@
   " (POSITION (LAMBDA (KEY LST) ((LABEL REC (LAMBDA (L N) "
   "  (COND ((NULL L) NIL) ((EQ (CAR L) KEY) N) (T (REC (CDR L) (1+ N)))))) "
   "  LST 0))) "
-  " (REMOVE-IF-NOT (LAMBDA (F LST) (MAPCON LST "
-  "  (FUNCTION (LAMBDA (X) (IF (F (CAR X)) (LIST (CAR X)) NIL)))))) "
+  " (REMOVE-IF-NOT (LAMBDA (_F LST) (MAPCON LST "
+  "  (FUNCTION (LAMBDA (X) (IF (_F (CAR X)) (LIST (CAR X)) NIL)))))) "
   " (SYMBOLS-WITH (LAMBDA (IND) (REMOVE-IF-NOT "
   "  (FUNCTION (LAMBDA (X) (GET X IND))) OBLIST)))"
   " (BWRITES (LAMBDA (LST) (MAP LST "
@@ -5308,6 +5309,9 @@
   ")) "
   ;; Compiler (WIP)
   ;; https://en.wikipedia.org/wiki/LEB128
+  "(CSETQ *OPTIMIZE-SAFETY* 3)"
+  "(CSETQ *COMPILED-EXPRS* NIL) "
+  "(CSETQ *COMPILED-FEXPRS* NIL) "
   "(DE ULEB128 (N) (PROG (B V) "
   " (SETQ B (LOGAND N 0x7F)) "
   ;; Suppress sign extension. Note that fixnum is 30 bit.
@@ -5550,6 +5554,15 @@
   "  (CONS 0x0c (LEB128 (- L 2)))) "  ;; br
   "(DE C::ASSEMBLE-BR-BLOCK (X L) "  ;; X of (BR-BLOCK . X=NIL)
   "  (CONS 0x0c (LEB128 (- L 1)))) "  ;; br
+  "(DE C::ERROR-CHECK (ASM) "
+  " (IF (< *OPTIMIZE-SAFETY* 2) "
+  "  ASM "
+  "  (LIST 'PROGN "
+  "   (LIST 'CALL 'I2V ASM 1) "
+  "   (LIST 'IF "
+  "    (LIST 'CALL 'I2I (LIST 'CALL 'V2I 7) 42) "  ;; 7: peek, 42: errorp
+  "    (LIST 'PROGN (LIST 'CALL 'V2I 2) (LIST 'BR-BLOCK)) "  ;; 2: pop
+  "    (LIST 'CALL 'V2I 2))))) "  ;; 2: pop
   "(DE C::COMPILE-ARG (N L) "
   " (IF (< N 4) "
   "  (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) (+ 11 N)) " ;; 11: getArgF1
@@ -5585,7 +5598,8 @@
      ;; Push arguments
   "  (MAPLIST AA "
   "   (FUNCTION (LAMBDA (Y) "
-  "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
+  "    (LIST 'CALL 'I2V (C::ERROR-CHECK "
+  "     (C::COMPILE-CODE SYM ARGS (CAR Y))) 1)))) "  ;; 1: push
   "  (LIST (LIST 'CALL 'II2I (CAR SB) (LENGTH AA) 20)))) "  ;; 20: subrCall
   ;;; FN and ALST must be an instruction
   "(DE C::COMPILE-FUNC-CALL-WITH-ALIST (SYM ARGS FN AA ALST) "
@@ -5594,7 +5608,8 @@
      ;; Push arguments
   "  (MAPLIST AA "
   "   (FUNCTION (LAMBDA (Y) "
-  "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARGS (CAR Y)) 1)))) "  ;; 1: push
+  "    (LIST 'CALL 'I2V (C::ERROR-CHECK "
+  "     (C::COMPILE-CODE SYM ARGS (CAR Y))) 1)))) "  ;; 1: push
      ;; Call FN
   "  (LIST (LIST 'CALL 'II2I FN (LENGTH AA) 21)))) "  ;; 21: funcCall
   ;;; FN must be an instruction
@@ -5651,7 +5666,7 @@
   "  (T (C::COMPILE-FUNC-CALL SYM ARGS (LIST 'CONST (CAR X)) (CDR X))))))) "
   "(DE C::COMPILE-IF-CALL (SYM ARG X) "  ;; X of (IF . X=(c th el))
   " (LIST 'IF "
-  "  (C::COMPILE-CODE SYM ARG (SCAR X)) "
+  "  (C::ERROR-CHECK (C::COMPILE-CODE SYM ARG (SCAR X))) "
   "  (C::COMPILE-CODE SYM ARG (SCAR (SCDR X))) "
   "  (C::COMPILE-CODE SYM ARG (SCAR (SCDR (SCDR X)))))) "
   "(DE C::COMPILE-QUOTE-CALL (SYM ARG X) "  ;; X of (QUOTE . X=(exp))
@@ -5675,7 +5690,7 @@
   "(DE C::COMPILE-CSETQ-CALL (SYM ARG X) "   ;; X of (CSETQ . X)
   " (LIST 'CALL 'II2I "
   "  (LIST 'CONST (CAR X)) "
-  "  (C::COMPILE-CODE SYM ARG (CADR X))"
+  "  (C::ERROR-CHECK (C::COMPILE-CODE SYM ARG (CADR X))) "
   "  27)) "  ;; 27: apvalSet
   "(DE C::COMPILE-SETQ-CALL (SYM ARG X) (PROG (N)  "   ;; X of (SETQ . X)
   " (SETQ N (POSITION (CAR X) ARGS))"
@@ -5683,7 +5698,8 @@
      ;; Set var in special cell
   "  ((GET (CAR X) 'SPECIAL) "
   "   (LIST 'PROGN "
-  "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARG (CADR X)) 1) "  ;; 1: push
+  "    (LIST 'CALL 'I2V (C::ERROR-CHECK "
+  "     (C::COMPILE-CODE SYM ARG (CADR X))) 1) "  ;; 1: push
   "   (LIST 'STORE "
   "    (LIST 'CALL 'I2I (LIST 'CONST (PROP (CAR X) 'SPECIAL)) 4) "  ;; 4: car
   "    (LIST 'CALL 'V2I 7)) "  ;; 7: peek
@@ -5692,13 +5708,14 @@
   "  ((OR (NOT N) (GET (CAR X) 'COMMON)) "
   "   (LIST 'CALL 'III2I "
   "    (LIST 'CONST (CAR X)) "
-  "    (C::COMPILE-CODE SYM ARG (CADR X)) "
+  "    (C::ERROR-CHECK (C::COMPILE-CODE SYM ARG (CADR X))) "
   "    (LIST 'CALL 'I2I (LIST 'GET-LOCAL 0) 10) "  ;; 10: getAArgFInSubr
   "    28)) "  ;; 28: setVarInAlist
      ;; Set var in stack
   "  (T "
   "   (LIST 'PROGN "
-  "    (LIST 'CALL 'I2V (C::COMPILE-CODE SYM ARG (CADR X)) 1) "  ;; 1: push
+  "    (LIST 'CALL 'I2V (C::ERROR-CHECK "
+  "     (C::COMPILE-CODE SYM ARG (CADR X))) 1) "  ;; 1: push
   "    (IF (< N 4) "
   "     (LIST 'CALL 'II2V "
   "      (LIST 'GET-LOCAL 0) "
@@ -5887,8 +5904,7 @@
   " (SETQ ASM (C::COMPILE-CODE FI ARGS EXP)) "
   " (IF (AND (CONSP EXP) (MEMBER (CAR EXP) '(RETURN GO))) "
   "  (RETURN ASM) "
-     ;; TODO: error check
-  "  (RETURN (LIST 'CALL 'I2V ASM 3))))) "  ;; 3: drop
+  "  (RETURN (LIST 'CALL 'I2V (C::ERROR-CHECK ASM) 3))))) "  ;; 3: drop
   "(DE C::COMPILE-PROG-FRAGMENT (FI ARGS FRGM N) "
   " (LIST 'WHEN (LIST '< (LIST 'GET-LOCAL 1) N) "
   "  (CONS 'PROGN (MAPLIST FRGM (FUNCTION (LAMBDA (E) "
@@ -5995,8 +6011,6 @@
   " (IF (NOT (EQ (CAR FN) 'LAMBDA)) "
   "  (ERROR (SYMCAT SYM '$$| is not a lambda|))) "
   " )) "
-  "(CSETQ *COMPILED-EXPRS* NIL) "
-  "(CSETQ *COMPILED-FEXPRS* NIL) "
   "(DE EVAL-ENTER-HOOK () (PROG ()"
   " (MAP *COMPILED-EXPRS* (FUNCTION (LAMBDA (X) (REMPROP (CAR X) 'EXPR)))) "
   " (MAP *COMPILED-FEXPRS* (FUNCTION (LAMBDA (X) (REMPROP (CAR X) 'FEXPR)))) "
