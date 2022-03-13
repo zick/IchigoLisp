@@ -6237,4 +6237,37 @@
             (call $log (global.get $sp))
             (unreachable)))  ;; TODO: Show better error messages
        (call $outputString (i32.const 40960)))
+
+ (func (export "readAndEvalAll")
+       (local $alist i32)
+       (local $rd i32)
+       (local $ret i32)
+       (local.set $alist (i32.const 0))
+       (global.set $printp (i32.const 40960))
+       (call $drop (call $apply (global.get $sym_eval_enter_hook)
+                         (i32.const 0) (i32.const 0)))
+
+       (global.set $st_level (i32.const 0))
+       (call $rdset (i32.const 51200))
+
+       (loop $loop
+          (global.set $printp (i32.const 40960))
+          (local.set $rd (call $read))
+          (if (i32.eq (local.get $rd) (global.get $sym_stop))
+              (return))
+          (local.set $ret (call $eval (local.get $rd) (i32.const 0)))
+          (if (call $errorp (local.get $ret))
+              (if (i32.eq (call $cdr (local.get $ret))
+                          (call $int2fixnum (global.get $str_err_eof)))
+                  (return)))
+          (call $printObj (local.get $ret))
+          (call $terprif)
+          (if (call $errorp (local.get $ret))
+              (return))
+          (br_if $loop (i32.eqz (call $errorp (local.get $ret)))))
+       (if (i32.ne (global.get $sp) (global.get $stack_bottom))
+           (then
+            (call $log (i32.const 999001))
+            (call $log (global.get $sp))
+            (unreachable))))  ;; TODO: Show better error messages
  )

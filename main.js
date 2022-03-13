@@ -141,6 +141,23 @@ function endTest() {
                ' (finished in ' + duration_ms + ' ms)');
 }
 
+function loadFile() {
+    var files = document.getElementById('file').files;
+    if (files.length == 0) {
+        return;
+    }
+    console.log(files[0].name);
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+        var str = reader.result;
+        writeToTerminal('(load-file ' + files[0].name  + ')\n');
+
+        var sender = ['eval', str];
+        ichigo.postMessage([sender, 'evalall', str]);
+    }
+    reader.readAsText(files[0]);
+}
+
 function moreOptions() {
     var opt = document.getElementById('more_options');
     if (opt.style.display != "none") {

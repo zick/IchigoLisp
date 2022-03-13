@@ -67,6 +67,12 @@ function Evalquote(str) {
     return last_output;
 }
 
+function EvalAll(str) {
+    storeString(str);
+    ichigo.instance.exports.readAndEvalAll();
+    return last_output;
+}
+
 WebAssembly.instantiateStreaming(fetch('ichigo.wasm'), importObject)
     .then(obj => {
         ichigo = obj;
@@ -85,6 +91,8 @@ onmessage = function(e) {
         postMessage([sender, type, Eval(e.data[2])]);
     } else if (type == 'evalquote') {
         postMessage([sender, 'eval', Evalquote(e.data[2])]);
+    } else if (type == 'evalall') {
+        postMessage([sender, 'eval', EvalAll(e.data[2])]);
     } else if (type == 'debug_level') {
         var level = e.data[2];
         console.log('debug_level = ' + level);
