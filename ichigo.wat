@@ -121,6 +121,7 @@
  (func $outputString (import "io" "outputString") (param i32))
  (func $loadWasm (import "io" "loadWasm") (param i32) (param i32))
  (func $getTimeInMs (import "io" "getTimeInMs") (result i64))
+ (func $jsRead (import "io" "read"))
  ;; WebAssembly page size is 64KB.
  ;; page 0: any
  ;; page 1: (empty)
@@ -4967,6 +4968,7 @@
          (call $int2fixnum (i32.shl (local.get $arg1) (local.get $arg2))))
 
    (func $subr_read (result i32)
+         (call $jsRead)
          (call $read))
 
    (func $subr_punch (result i32)

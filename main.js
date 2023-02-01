@@ -1,5 +1,7 @@
 var ichigo = new Worker('ichigo.js');
 var ichigo_lock = true;  // Unlocked when 'init' is sent.
+var read_lock = null;
+var read_str_arr = null;
 
 function htmlEscape(str) {
     return str
@@ -35,6 +37,23 @@ function setMessage(str) {
     document.getElementById('msg').innerText = str;
 }
 
+function prepareRead(lock, str_arr) {
+    read_lock = lock;
+    read_str_arr = str_arr;
+    document.getElementById('eval').value = 'read';
+    setMessage('Read');
+    writeToTerminal('READ> ');
+    ichigo_lock = false;
+}
+
+function storeStringToArray(str, i8) {
+    var str_array = new TextEncoder('utf8').encode(str);
+    for (var i = 0; i < str_array.length; i++) {
+        i8[i] = str_array[i];
+    }
+    i8[str_array.length] = 0;
+}
+
 function startEval() {
     if (ichigo_lock) {
         console.log('startEval was called during ichigo_lock is true');
@@ -47,6 +66,16 @@ function startEval() {
     var str = document.getElementById('input').value;
     writeToTerminal(str + '\n');
     document.getElementById('input').value = '';
+
+    if (read_lock) {
+        storeStringToArray(str, read_str_arr);
+        Atomics.store(read_lock, 0, 1);
+        Atomics.notify(read_lock, 0);
+        document.getElementById('eval').value = 'eval';
+        read_lock = null;
+        read_str_arr = null;
+        return;
+    }
 
     var sender = ['eval', str];
     var command = document.getElementById('evaltype').value;
@@ -178,6 +207,8 @@ ichigo.onmessage = function(e) {
         endEval(sender, e.data[2]);
     } else if (type == 'print') {
         writeToTerminal(e.data[2]);
+    } else if (type == 'read') {
+        prepareRead(e.data[2], e.data[3]);
     } else if (type == 'debug_level') {
     } else if (type == 'init') {
         setMessage('Ready');

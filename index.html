@@ -23,11 +23,12 @@
   </head>
   <body>
     <h1>Ichigo Lisp</h1>
+    <script type="text/javascript" src="sw.js"></script>
     <script type="text/javascript" src="test_data.js"></script>
     <script type="text/javascript" src="main.js"></script>
     <form onSubmit="return enterEval();" autocomplete="off">
       <input type="text" id="input" size="80"></input>
-      <input type="button" value="eval" onClick="startEval()"></input>
+      <input type="button" id="eval" value="eval" onClick="startEval()"></input>
       <a href="#" onclick="moreOptions()">more options</a>
     </form>
     <div id="more_options" style="display:none">
