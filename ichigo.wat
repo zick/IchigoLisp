@@ -6159,7 +6159,7 @@
   " C::VCTAG "
   " ) (FUNCTION (LAMBDA (X) (REMOB (CAR X))))) "
   ;; Greeting
-  "(PRINT '$$|\F0\9F\8D\93 Ichigo Lisp version 0.1.0 powered by WebAssembly|) "
+  "(PRINT '$$|\F0\9F\8D\93 Ichigo Lisp version 0.1.1 powered by WebAssembly|) "
   "(PRINT '$$|\F0\9F\8D\93 Enjoy LISP 1.5(-ish) programming|) "
   "(RECLAIM)"
   "STOP "  ;; END OF EXPR/FEXPR/APVAL
