@@ -221,9 +221,3 @@ You can check the latest status by evaluating `(symbols-with 'fexpr)`.
 - DE
 - DEFUN
 - DF
-
-## Known Issues
-### `READ` cannot read expressions interactively
-`READ` (and `ADVANCE` and `STARTREAD`) reads characters only from the program
-text. For example `(READ)non-program-word`'s value is `non-program-word`.
-Just evaluating `(READ)` throws an error (`<R4: EOF ON READ-IN>`).
