@@ -34,6 +34,17 @@ For running locally:
 % http-server  # Run HTTP server locally because file:// isn't supported
 ```
 
+Alternatively, using the [Binaryen](https://github.com/WebAssembly/binaryen)
+toolchain to assemble the binary:
+
+```
+# Assemble
+wasm-as -o ichigo.wasm ichigo.wat
+
+# Optimize (optional)
+wasm-opt -O3 -o ichigo.wasm ichigo.wasm
+```
+
 ## Supported Features
 Ichigo Lisp supports most of features written in
 [LISP 1.5 Programmer's Manual](http://www.softwarepreservation.org/projects/LISP/book/LISP%201.5%20Programmers%20Manual.pdf/view)
